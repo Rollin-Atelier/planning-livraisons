@@ -3,7 +3,7 @@ import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
 import pandas as pd
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 
 # ── Configuration ──────────────────────────────────────────────
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1KbS5fA33r6o1isdXdT_dWZMDIgtbAG17t0TKa9bdDpw"
@@ -13,14 +13,27 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive",
 ]
 
-DESTINATIONS = ["Peinture", "Galvanisation", "Chantier"]
-CAMIONS = ["Camion 1", "Camion 2", "Camion 3"]
+TYPES_TRAJET = [
+    "Livraison ouvrage",
+    "Enlevement / Collecte",
+    "Livraison autre",
+    "Trajet divers",
+]
+
+DESTINATIONS_OUVRAGE = ["Peinture", "Galvanisation", "Chantier"]
+
+CAMIONS = ["Camion 1", "Camion 2", "Camion 3", "Vehicule leger"]
 
 COLORS = {
-    "Peinture":      "#4A90D9",
-    "Galvanisation": "#E67E22",
-    "Chantier":      "#27AE60",
+    "Livraison ouvrage":    "#0f3460",
+    "Enlevement / Collecte": "#8E44AD",
+    "Livraison autre":      "#E67E22",
+    "Trajet divers":        "#7F8C8D",
 }
+
+STATUTS = ["Planifie", "Livre", "Reporte"]
+
+HEURES = [f"{h:02d}:{m:02d}" for h in range(5, 22) for m in (0, 15, 30, 45)]
 
 # ── Connexion Google Sheets ─────────────────────────────────────
 @st.cache_resource
@@ -34,10 +47,14 @@ def get_sheet(client, tab_name):
     try:
         return sh.worksheet(tab_name)
     except gspread.exceptions.WorksheetNotFound:
-        ws = sh.add_worksheet(title=tab_name, rows=500, cols=20)
-        ws.append_row(["id_tache", "affaire", "ouvrage", "destination",
-                       "nom_chantier", "semaine", "camion", "date_livraison",
-                       "statut", "commentaire"])
+        ws = sh.add_worksheet(title=tab_name, rows=500, cols=25)
+        ws.append_row([
+            "id_trajet", "type_trajet", "id_tache", "affaire", "ouvrage",
+            "destination", "nom_chantier", "description",
+            "adresse", "contact_nom", "contact_tel",
+            "date_livraison", "semaine", "heure_debut", "heure_fin",
+            "camion", "statut", "commentaire",
+        ])
         return ws
 
 # ── Lecture des taches terminees ───────────────────────────────
@@ -74,44 +91,70 @@ def load_taches_terminees(_client):
             df_term[col] = ""
     return df_term[["id", "affaire", "ouvrage", "statut"]]
 
-# ── Lecture des livraisons ─────────────────────────────────────
+# ── Lecture / ecriture des trajets ────────────────────────────
 @st.cache_data(ttl=30)
-def load_livraisons(_client):
+def load_trajets(_client):
     ws = get_sheet(_client, "livraisons")
     data = ws.get_all_records()
+    cols = ["id_trajet", "type_trajet", "id_tache", "affaire", "ouvrage",
+            "destination", "nom_chantier", "description",
+            "adresse", "contact_nom", "contact_tel",
+            "date_livraison", "semaine", "heure_debut", "heure_fin",
+            "camion", "statut", "commentaire"]
     if not data:
-        return pd.DataFrame(columns=["id_tache", "affaire", "ouvrage",
-                                     "destination", "nom_chantier", "semaine",
-                                     "camion", "date_livraison", "statut",
-                                     "commentaire"])
-    return pd.DataFrame(data)
+        return pd.DataFrame(columns=cols)
+    df = pd.DataFrame(data)
+    for c in cols:
+        if c not in df.columns:
+            df[c] = ""
+    return df[cols]
 
-def save_livraison(client, row_dict):
+def save_trajet(client, row_dict):
     ws = get_sheet(client, "livraisons")
     ws.append_row([
+        row_dict.get("id_trajet", ""),
+        row_dict.get("type_trajet", ""),
         row_dict.get("id_tache", ""),
         row_dict.get("affaire", ""),
         row_dict.get("ouvrage", ""),
         row_dict.get("destination", ""),
         row_dict.get("nom_chantier", ""),
-        row_dict.get("semaine", ""),
-        row_dict.get("camion", ""),
+        row_dict.get("description", ""),
+        row_dict.get("adresse", ""),
+        row_dict.get("contact_nom", ""),
+        row_dict.get("contact_tel", ""),
         row_dict.get("date_livraison", ""),
+        row_dict.get("semaine", ""),
+        row_dict.get("heure_debut", ""),
+        row_dict.get("heure_fin", ""),
+        row_dict.get("camion", ""),
         row_dict.get("statut", "Planifie"),
         row_dict.get("commentaire", ""),
     ])
     st.cache_data.clear()
 
-def update_livraison_statut(client, id_tache, new_statut):
+def update_trajet_statut(client, id_trajet, new_statut):
     ws = get_sheet(client, "livraisons")
     data = ws.get_all_records()
     for i, row in enumerate(data):
-        if str(row.get("id_tache", "")) == str(id_tache):
-            ws.update_cell(i + 2, 9, new_statut)
+        if str(row.get("id_trajet", "")) == str(id_trajet):
+            ws.update_cell(i + 2, 17, new_statut)
             break
     st.cache_data.clear()
 
-# ── Utilitaires semaine ────────────────────────────────────────
+def delete_trajet(client, id_trajet):
+    ws = get_sheet(client, "livraisons")
+    data = ws.get_all_records()
+    for i, row in enumerate(data):
+        if str(row.get("id_trajet", "")) == str(id_trajet):
+            ws.delete_rows(i + 2)
+            break
+    st.cache_data.clear()
+
+def gen_id():
+    return datetime.now().strftime("%Y%m%d%H%M%S%f")
+
+# ── Utilitaires semaine / date ─────────────────────────────────
 def get_semaine_label(d: date) -> str:
     iso = d.isocalendar()
     return f"S{iso[1]:02d}-{iso[0]}"
@@ -136,6 +179,24 @@ def get_next_semaines(n=16):
         d += timedelta(weeks=1)
     return semaines
 
+def jours_semaine(semaine_label: str):
+    lundi, _ = semaine_to_dates(semaine_label)
+    if not lundi:
+        return []
+    jours = []
+    noms = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"]
+    for i, nom in enumerate(noms):
+        d = lundi + timedelta(days=i)
+        jours.append((nom, d))
+    return jours
+
+def heure_to_min(h: str) -> int:
+    try:
+        parts = h.split(":")
+        return int(parts[0]) * 60 + int(parts[1])
+    except Exception:
+        return 0
+
 # ── CSS ────────────────────────────────────────────────────────
 def inject_css():
     st.markdown("""
@@ -153,14 +214,11 @@ def inject_css():
     .card {
         background: white;
         border-radius: 10px;
-        padding: 1rem 1.2rem;
+        padding: 0.9rem 1.2rem;
         margin: 0.4rem 0;
         border-left: 5px solid #4A90D9;
         box-shadow: 0 2px 6px rgba(0,0,0,0.08);
     }
-    .card-peinture      { border-left-color: #4A90D9; }
-    .card-galvanisation { border-left-color: #E67E22; }
-    .card-chantier      { border-left-color: #27AE60; }
     .badge {
         display: inline-block;
         padding: 2px 10px;
@@ -172,6 +230,15 @@ def inject_css():
     .badge-planifie { background: #4A90D9; }
     .badge-livre    { background: #27AE60; }
     .badge-reporte  { background: #E74C3C; }
+    .jour-header {
+        background: #1a1a2e;
+        color: white;
+        border-radius: 8px;
+        padding: 0.5rem 1rem;
+        margin: 1.2rem 0 0.5rem;
+        font-weight: 700;
+        font-size: 1rem;
+    }
     .semaine-header {
         background: #f0f4f8;
         border-radius: 8px;
@@ -180,6 +247,15 @@ def inject_css():
         font-weight: 700;
         color: #1a1a2e;
         border-left: 4px solid #0f3460;
+    }
+    .heure-badge {
+        background: #f0f4f8;
+        border-radius: 6px;
+        padding: 2px 8px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: #1a1a2e;
+        margin-right: 6px;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -191,7 +267,7 @@ def check_password():
     st.markdown("""
     <div class="main-header">
         <h1>Livraisons Atelier</h1>
-        <p>Planning de livraison des ouvrages finis</p>
+        <p>Planning de livraison et tournees</p>
     </div>
     """, unsafe_allow_html=True)
     with st.form("login_form"):
@@ -205,175 +281,292 @@ def check_password():
                 st.error("Mot de passe incorrect")
     return False
 
-# ── Page : Planifier ───────────────────────────────────────────
-def page_planifier(client):
-    st.subheader("Planifier une livraison")
-    taches = load_taches_terminees(client)
-    livraisons = load_livraisons(client)
+# ── Composant carte trajet ─────────────────────────────────────
+def render_card(row):
+    type_t = row.get("type_trajet", "")
+    color = COLORS.get(type_t, "#888")
+    statut = row.get("statut", "Planifie")
+    badge_class = f"badge-{statut.lower()}" if statut.lower() in ("planifie", "livre", "reporte") else "badge-planifie"
 
-    ids_planifies = set(livraisons["id_tache"].astype(str).tolist()) if not livraisons.empty else set()
-    taches_dispo = taches[~taches["id"].astype(str).isin(ids_planifies)].copy()
+    titre = row.get("description") or row.get("ouvrage") or type_t
+    sous_titre = row.get("affaire", "")
 
-    if taches_dispo.empty:
-        st.info("Aucun ouvrage termine en attente de planification.")
-        return
+    heure_debut = row.get("heure_debut", "")
+    heure_fin   = row.get("heure_fin", "")
+    plage = f"{heure_debut} - {heure_fin}" if heure_debut and heure_fin else (heure_debut or "")
 
-    with st.form("form_livraison"):
-        st.markdown("**Ouvrage a livrer**")
-        options = [
-            f"{r['affaire']} -- {r['ouvrage']} (id: {r['id']})"
-            for _, r in taches_dispo.iterrows()
-        ]
-        choix = st.selectbox("Selectionner l'ouvrage", options)
-        idx = options.index(choix)
-        tache_sel = taches_dispo.iloc[idx]
+    adresse = row.get("adresse", "")
+    contact_nom = row.get("contact_nom", "")
+    contact_tel = row.get("contact_tel", "")
+    commentaire = row.get("commentaire", "")
+    destination = row.get("destination", "")
+    nom_chantier = row.get("nom_chantier", "")
 
-        col1, col2 = st.columns(2)
+    dest_label = ""
+    if destination:
+        dest_label = destination
+        if destination == "Chantier" and nom_chantier:
+            dest_label = f"Chantier : {nom_chantier}"
+
+    lines = []
+    if plage:
+        lines.append(f"<span class='heure-badge'>⏱ {plage}</span>")
+    if dest_label:
+        lines.append(f"<span style='color:{color};font-weight:600'>{dest_label}</span>")
+    lines.append(f"<span class='badge {badge_class}'>{statut}</span>")
+
+    detail_lines = []
+    if adresse:
+        detail_lines.append(f"📍 {adresse}")
+    if contact_nom or contact_tel:
+        contact_str = " ".join(filter(None, [contact_nom, contact_tel]))
+        detail_lines.append(f"👤 {contact_str}")
+    if commentaire:
+        detail_lines.append(f"💬 {commentaire}")
+
+    detail_html = ""
+    if detail_lines:
+        detail_html = "<br>" + "<br>".join(
+            [f"<span style='font-size:0.85rem;color:#555'>{l}</span>" for l in detail_lines]
+        )
+
+    type_badge = f"<span style='background:{color};color:white;border-radius:4px;padding:1px 7px;font-size:0.75rem;font-weight:600;margin-right:6px'>{type_t}</span>"
+
+    st.markdown(f"""
+    <div class="card" style="border-left-color:{color}">
+        {type_badge}
+        <strong>{titre}</strong>
+        {f"&nbsp;<span style='color:#666;font-size:0.9rem'>{sous_titre}</span>" if sous_titre else ""}
+        <br>
+        {"&nbsp;&nbsp;".join(lines)}
+        {detail_html}
+    </div>
+    """, unsafe_allow_html=True)
+
+# ── Page : Ajouter un trajet ───────────────────────────────────
+def page_ajouter(client):
+    st.subheader("Ajouter un trajet")
+
+    type_trajet = st.selectbox("Type de trajet", TYPES_TRAJET)
+
+    with st.form("form_trajet"):
+
+        # -- Champs specifiques selon le type
+        id_tache   = ""
+        affaire    = ""
+        ouvrage    = ""
+        destination = ""
+        nom_chantier = ""
+        description  = ""
+
+        if type_trajet == "Livraison ouvrage":
+            taches = load_taches_terminees(client)
+            trajets = load_trajets(client)
+            ids_planifies = set(trajets[trajets["type_trajet"] == "Livraison ouvrage"]["id_tache"].astype(str).tolist()) if not trajets.empty else set()
+            taches_dispo = taches[~taches["id"].astype(str).isin(ids_planifies)].copy()
+
+            if taches_dispo.empty:
+                st.info("Aucun ouvrage termine en attente de planification.")
+                st.form_submit_button("Ajouter", disabled=True)
+                return
+
+            options = [
+                f"{r['affaire']} -- {r['ouvrage']} (id: {r['id']})"
+                for _, r in taches_dispo.iterrows()
+            ]
+            choix = st.selectbox("Ouvrage a livrer", options)
+            idx = options.index(choix)
+            tache_sel = taches_dispo.iloc[idx]
+            id_tache  = str(tache_sel["id"])
+            affaire   = str(tache_sel["affaire"])
+            ouvrage   = str(tache_sel["ouvrage"])
+
+            col_d1, col_d2 = st.columns(2)
+            with col_d1:
+                destination = st.selectbox("Destination", DESTINATIONS_OUVRAGE)
+            with col_d2:
+                nom_chantier = st.text_input("Nom du chantier (si Chantier)")
+
+        else:
+            description = st.text_input("Description du trajet *", placeholder="Ex: Recuperer profiles chez fournisseur X")
+
+        st.markdown("---")
+        st.markdown("**Quand ?**")
+        col1, col2, col3 = st.columns(3)
         with col1:
-            destination = st.selectbox("Destination", DESTINATIONS)
+            date_liv = st.date_input("Date", value=date.today())
         with col2:
-            semaines = get_next_semaines(16)
-            semaine = st.selectbox("Semaine de livraison", semaines)
-
-        nom_chantier = st.text_input("Nom du chantier (si destination = Chantier)")
-
-        col3, col4 = st.columns(2)
+            heure_debut = st.selectbox("Heure de depart", HEURES,
+                                       index=HEURES.index("08:00") if "08:00" in HEURES else 0)
         with col3:
-            camion = st.selectbox("Camion", CAMIONS)
-        with col4:
-            date_liv = st.date_input("Date prevue", value=date.today())
+            heure_fin = st.selectbox("Heure de fin", HEURES,
+                                     index=HEURES.index("10:00") if "10:00" in HEURES else 4)
 
-        commentaire = st.text_area("Commentaire (optionnel)", height=80)
+        st.markdown("**Vehicule**")
+        camion = st.selectbox("Camion / Vehicule", CAMIONS)
 
-        submitted = st.form_submit_button("Planifier la livraison", type="primary")
+        st.markdown("**Lieu**")
+        adresse = st.text_input("Adresse", placeholder="Ex: 12 rue de la Paix, 75001 Paris")
+
+        st.markdown("**Contact sur place**")
+        col_c1, col_c2 = st.columns(2)
+        with col_c1:
+            contact_nom = st.text_input("Nom du contact")
+        with col_c2:
+            contact_tel = st.text_input("Telephone")
+
+        commentaire = st.text_area("Commentaire (optionnel)", height=70)
+
+        submitted = st.form_submit_button("Ajouter le trajet", type="primary")
         if submitted:
-            if destination == "Chantier" and not nom_chantier.strip():
-                st.error("Veuillez saisir le nom du chantier.")
+            if type_trajet != "Livraison ouvrage" and not description.strip():
+                st.error("Veuillez saisir une description.")
+            elif heure_to_min(heure_fin) <= heure_to_min(heure_debut):
+                st.error("L'heure de fin doit etre apres l'heure de depart.")
             else:
-                save_livraison(client, {
-                    "id_tache":       str(tache_sel["id"]),
-                    "affaire":        str(tache_sel["affaire"]),
-                    "ouvrage":        str(tache_sel["ouvrage"]),
+                semaine = get_semaine_label(date_liv)
+                save_trajet(client, {
+                    "id_trajet":      gen_id(),
+                    "type_trajet":    type_trajet,
+                    "id_tache":       id_tache,
+                    "affaire":        affaire,
+                    "ouvrage":        ouvrage,
                     "destination":    destination,
                     "nom_chantier":   nom_chantier.strip(),
-                    "semaine":        semaine,
-                    "camion":         camion,
+                    "description":    description.strip(),
+                    "adresse":        adresse.strip(),
+                    "contact_nom":    contact_nom.strip(),
+                    "contact_tel":    contact_tel.strip(),
                     "date_livraison": str(date_liv),
+                    "semaine":        semaine,
+                    "heure_debut":    heure_debut,
+                    "heure_fin":      heure_fin,
+                    "camion":         camion,
                     "statut":         "Planifie",
                     "commentaire":    commentaire.strip(),
                 })
-                st.success(f"Livraison planifiee : {tache_sel['ouvrage']} -> {destination} ({semaine})")
+                label = description.strip() if description.strip() else ouvrage
+                st.success(f"Trajet ajoute : {label} le {date_liv.strftime('%d/%m/%Y')} ({heure_debut} - {heure_fin})")
 
 # ── Page : Planning par semaine ────────────────────────────────
 def page_planning(client):
-    st.subheader("Planning de livraison")
-    livraisons = load_livraisons(client)
+    st.subheader("Planning par semaine")
+    trajets = load_trajets(client)
 
-    if livraisons.empty:
-        st.info("Aucune livraison planifiee pour l'instant.")
+    if trajets.empty:
+        st.info("Aucun trajet planifie pour l'instant.")
         return
 
-    semaines_dispo = sorted(livraisons["semaine"].unique().tolist())
+    semaines_dispo = sorted(trajets["semaine"].unique().tolist())
     semaine_sel = st.selectbox("Semaine", semaines_dispo)
 
-    df_sem = livraisons[livraisons["semaine"] == semaine_sel].copy()
+    df_sem = trajets[trajets["semaine"] == semaine_sel].copy()
     lundi, vendredi = semaine_to_dates(semaine_sel)
     if lundi:
         st.markdown(f"""
         <div class="semaine-header">
             Semaine {semaine_sel} &nbsp;|&nbsp;
             {lundi.strftime('%d/%m/%Y')} au {vendredi.strftime('%d/%m/%Y')}
-            &nbsp;|&nbsp; {len(df_sem)} livraison(s)
+            &nbsp;|&nbsp; {len(df_sem)} trajet(s)
         </div>
         """, unsafe_allow_html=True)
 
-    if df_sem.empty:
-        st.info("Aucune livraison cette semaine.")
-        return
-
-    for camion in CAMIONS:
-        df_cam = df_sem[df_sem["camion"] == camion]
-        if df_cam.empty:
+    # Vue par jour
+    jours = jours_semaine(semaine_sel)
+    for nom_jour, d in jours:
+        d_str = str(d)
+        df_jour = df_sem[df_sem["date_livraison"] == d_str].copy()
+        if df_jour.empty:
             continue
-        st.markdown(f"**{camion}** ({len(df_cam)} livraison(s))")
-        for _, row in df_cam.iterrows():
-            dest = row.get("destination", "")
-            css_class = f"card-{dest.lower()}" if dest.lower() in ("peinture", "galvanisation", "chantier") else ""
-            color = COLORS.get(dest, "#888")
-            label_dest = dest
-            if dest == "Chantier" and row.get("nom_chantier"):
-                label_dest = f"Chantier : {row['nom_chantier']}"
-            statut = row.get("statut", "Planifie")
-            badge_class = f"badge-{statut.lower()}" if statut.lower() in ("planifie", "livre", "reporte") else "badge-planifie"
-            commentaire_html = f"<br><em style='font-size:0.85rem;color:#666'>{row.get('commentaire','')}</em>" if row.get("commentaire") else ""
-            st.markdown(f"""
-            <div class="card {css_class}">
-                <strong>{row.get('ouvrage','')}</strong>
-                &nbsp;<span style="color:#666;font-size:0.9rem">{row.get('affaire','')}</span><br>
-                <span style="color:{color};font-weight:600">{label_dest}</span>
-                &nbsp;&nbsp;
-                <span class="badge {badge_class}">{statut}</span>
-                &nbsp;&nbsp;
-                <span style="color:#888;font-size:0.85rem">{row.get('date_livraison','')}</span>
-                {commentaire_html}
-            </div>
-            """, unsafe_allow_html=True)
 
-        with st.expander(f"Mettre a jour le statut ({camion})"):
-            for _, row in df_cam.iterrows():
-                col_a, col_b = st.columns([3, 2])
-                with col_a:
-                    st.write(f"{row.get('ouvrage','')} -- {row.get('affaire','')}")
-                with col_b:
-                    statut_actuel = row.get("statut", "Planifie")
-                    if statut_actuel not in ["Planifie", "Livre", "Reporte"]:
-                        statut_actuel = "Planifie"
-                    new_statut = st.selectbox(
-                        "Statut",
-                        ["Planifie", "Livre", "Reporte"],
-                        index=["Planifie", "Livre", "Reporte"].index(statut_actuel),
-                        key=f"statut_{row.get('id_tache','')}_{camion}",
-                    )
-                    if st.button("Sauvegarder", key=f"btn_{row.get('id_tache','')}_{camion}"):
-                        update_livraison_statut(client, row.get("id_tache", ""), new_statut)
-                        st.success("Statut mis a jour !")
-                        st.rerun()
+        # Trier par heure de debut
+        df_jour["_min"] = df_jour["heure_debut"].apply(heure_to_min)
+        df_jour = df_jour.sort_values("_min")
+
+        st.markdown(f"""
+        <div class="jour-header">
+            {nom_jour} {d.strftime('%d/%m/%Y')} &nbsp;—&nbsp; {len(df_jour)} trajet(s)
+        </div>
+        """, unsafe_allow_html=True)
+
+        for _, row in df_jour.iterrows():
+            render_card(row)
+
+    # Mise a jour statuts
+    st.markdown("---")
+    with st.expander("Mettre a jour les statuts / supprimer"):
+        for _, row in df_sem.iterrows():
+            col_a, col_b, col_c = st.columns([4, 2, 1])
+            label = row.get("description") or row.get("ouvrage") or row.get("type_trajet", "")
+            with col_a:
+                st.write(f"{row.get('date_livraison','')} | {row.get('heure_debut','')} | {label}")
+            with col_b:
+                statut_actuel = row.get("statut", "Planifie")
+                if statut_actuel not in STATUTS:
+                    statut_actuel = "Planifie"
+                new_statut = st.selectbox(
+                    "Statut",
+                    STATUTS,
+                    index=STATUTS.index(statut_actuel),
+                    key=f"st_{row.get('id_trajet','')}",
+                )
+                if st.button("OK", key=f"ok_{row.get('id_trajet','')}"):
+                    update_trajet_statut(client, row.get("id_trajet", ""), new_statut)
+                    st.success("Mis a jour !")
+                    st.rerun()
+            with col_c:
+                if st.button("🗑", key=f"del_{row.get('id_trajet','')}"):
+                    delete_trajet(client, row.get("id_trajet", ""))
+                    st.success("Supprime !")
+                    st.rerun()
 
 # ── Page : Tableau de bord ─────────────────────────────────────
 def page_dashboard(client):
     st.subheader("Tableau de bord")
-    livraisons = load_livraisons(client)
-    taches = load_taches_terminees(client)
+    trajets = load_trajets(client)
+    taches  = load_taches_terminees(client)
 
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("Ouvrages termines", len(taches))
     with col2:
-        n_planif = len(livraisons[livraisons["statut"] == "Planifie"]) if not livraisons.empty else 0
-        st.metric("Livraisons planifiees", n_planif)
+        n_planif = len(trajets[trajets["statut"] == "Planifie"]) if not trajets.empty else 0
+        st.metric("Trajets planifies", n_planif)
     with col3:
-        n_livre = len(livraisons[livraisons["statut"] == "Livre"]) if not livraisons.empty else 0
-        st.metric("Livraisons effectuees", n_livre)
+        n_livre = len(trajets[trajets["statut"] == "Livre"]) if not trajets.empty else 0
+        st.metric("Trajets effectues", n_livre)
     with col4:
-        n_att = len(taches) - len(livraisons) if not livraisons.empty else len(taches)
-        st.metric("En attente de planification", max(n_att, 0))
+        n_att = len(taches) - len(trajets[trajets["type_trajet"] == "Livraison ouvrage"]) if not trajets.empty else len(taches)
+        st.metric("Ouvrages en attente", max(n_att, 0))
 
-    if not livraisons.empty:
+    if not trajets.empty:
         st.markdown("---")
-        st.markdown("**Repartition par destination**")
-        dest_counts = livraisons["destination"].value_counts()
-        col_a, col_b, col_c = st.columns(3)
-        for col, dest in zip([col_a, col_b, col_c], DESTINATIONS):
+        st.markdown("**Repartition par type de trajet**")
+        type_counts = trajets["type_trajet"].value_counts()
+        cols = st.columns(len(TYPES_TRAJET))
+        for col, t in zip(cols, TYPES_TRAJET):
             with col:
-                count = int(dest_counts.get(dest, 0))
-                color = COLORS.get(dest, "#888")
+                count = int(type_counts.get(t, 0))
+                color = COLORS.get(t, "#888")
                 st.markdown(f"""
                 <div style="background:{color};color:white;border-radius:10px;
                             padding:1rem;text-align:center;">
-                    <div style="font-size:2rem;font-weight:700">{count}</div>
-                    <div style="font-size:0.9rem">{dest}</div>
+                    <div style="font-size:1.8rem;font-weight:700">{count}</div>
+                    <div style="font-size:0.8rem">{t}</div>
                 </div>
                 """, unsafe_allow_html=True)
+
+        st.markdown("---")
+        st.markdown("**Prochains trajets**")
+        today_str = str(date.today())
+        df_next = trajets[
+            (trajets["date_livraison"] >= today_str) &
+            (trajets["statut"] == "Planifie")
+        ].copy()
+        df_next["_min"] = df_next["heure_debut"].apply(heure_to_min)
+        df_next = df_next.sort_values(["date_livraison", "_min"]).head(5)
+        for _, row in df_next.iterrows():
+            render_card(row)
 
 # ── Main ───────────────────────────────────────────────────────
 def main():
@@ -392,15 +585,15 @@ def main():
     st.markdown("""
     <div class="main-header">
         <h1>🚚 Livraisons Atelier</h1>
-        <p>Planning de livraison des ouvrages finis</p>
+        <p>Planning de livraison et tournees</p>
     </div>
     """, unsafe_allow_html=True)
 
-    tabs = st.tabs(["Tableau de bord", "Planifier une livraison", "Planning par semaine"])
+    tabs = st.tabs(["Tableau de bord", "Ajouter un trajet", "Planning par semaine"])
     with tabs[0]:
         page_dashboard(client)
     with tabs[1]:
-        page_planifier(client)
+        page_ajouter(client)
     with tabs[2]:
         page_planning(client)
 
