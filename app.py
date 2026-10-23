@@ -3,8 +3,7 @@ import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
 import pandas as pd
-from datetime import datetime, date, timedelta
-import json
+from datetime import date, timedelta
 
 # ── Configuration ──────────────────────────────────────────────
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1KbS5fA33r6o1isdXdT_dWZMDIgtbAG17t0TKa9bdDpw"
@@ -17,17 +16,16 @@ SCOPES = [
 DESTINATIONS = ["Peinture", "Galvanisation", "Chantier"]
 CAMIONS = ["Camion 1", "Camion 2", "Camion 3"]
 
-# Couleurs par destination
 COLORS = {
-    "Peinture":       "#4A90D9",
-    "Galvanisation":  "#E67E22",
-    "Chantier":       "#27AE60",
+    "Peinture":      "#4A90D9",
+    "Galvanisation": "#E67E22",
+    "Chantier":      "#27AE60",
 }
 
 # ── Connexion Google Sheets ─────────────────────────────────────
 @st.cache_resource
 def get_client():
-    creds_dict = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
+    creds_dict = dict(st.secrets["GOOGLE_CREDENTIALS"])
     creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
     return gspread.authorize(creds)
 
@@ -51,7 +49,6 @@ def load_taches_terminees(_client):
     df = pd.DataFrame(data)
     if df.empty:
         return pd.DataFrame(columns=["id", "affaire", "ouvrage", "statut"])
-    # Normalisation du nom de colonne statut
     col_statut = None
     for c in df.columns:
         if c.lower() in ("statut", "status", "etat", "etat_tache"):
@@ -60,7 +57,6 @@ def load_taches_terminees(_client):
     if col_statut is None:
         return pd.DataFrame(columns=["id", "affaire", "ouvrage", "statut"])
     df_term = df[df[col_statut].str.strip().str.lower() == "termine"].copy()
-    # Colonnes utiles
     cols_map = {}
     for c in df.columns:
         cl = c.lower()
@@ -131,7 +127,7 @@ def semaine_to_dates(semaine_label: str):
     except Exception:
         return None, None
 
-def get_next_semaines(n=12):
+def get_next_semaines(n=16):
     today = date.today()
     semaines = []
     d = today - timedelta(days=today.weekday())
@@ -140,7 +136,7 @@ def get_next_semaines(n=12):
         d += timedelta(weeks=1)
     return semaines
 
-# ── CSS personnalise ───────────────────────────────────────────
+# ── CSS ────────────────────────────────────────────────────────
 def inject_css():
     st.markdown("""
     <style>
@@ -173,9 +169,9 @@ def inject_css():
         font-weight: 600;
         color: white;
     }
-    .badge-planifie  { background: #4A90D9; }
-    .badge-livre     { background: #27AE60; }
-    .badge-reporte   { background: #E74C3C; }
+    .badge-planifie { background: #4A90D9; }
+    .badge-livre    { background: #27AE60; }
+    .badge-reporte  { background: #E74C3C; }
     .semaine-header {
         background: #f0f4f8;
         border-radius: 8px;
@@ -209,13 +205,12 @@ def check_password():
                 st.error("Mot de passe incorrect")
     return False
 
-# ── Page : Planifier une livraison ─────────────────────────────
+# ── Page : Planifier ───────────────────────────────────────────
 def page_planifier(client):
     st.subheader("Planifier une livraison")
     taches = load_taches_terminees(client)
     livraisons = load_livraisons(client)
 
-    # Taches deja planifiees
     ids_planifies = set(livraisons["id_tache"].astype(str).tolist()) if not livraisons.empty else set()
     taches_dispo = taches[~taches["id"].astype(str).isin(ids_planifies)].copy()
 
@@ -240,9 +235,7 @@ def page_planifier(client):
             semaines = get_next_semaines(16)
             semaine = st.selectbox("Semaine de livraison", semaines)
 
-        nom_chantier = ""
-        if destination == "Chantier":
-            nom_chantier = st.text_input("Nom du chantier")
+        nom_chantier = st.text_input("Nom du chantier (si destination = Chantier)")
 
         col3, col4 = st.columns(2)
         with col3:
@@ -258,16 +251,16 @@ def page_planifier(client):
                 st.error("Veuillez saisir le nom du chantier.")
             else:
                 save_livraison(client, {
-                    "id_tache":      str(tache_sel["id"]),
-                    "affaire":       str(tache_sel["affaire"]),
-                    "ouvrage":       str(tache_sel["ouvrage"]),
-                    "destination":   destination,
-                    "nom_chantier":  nom_chantier.strip(),
-                    "semaine":       semaine,
-                    "camion":        camion,
+                    "id_tache":       str(tache_sel["id"]),
+                    "affaire":        str(tache_sel["affaire"]),
+                    "ouvrage":        str(tache_sel["ouvrage"]),
+                    "destination":    destination,
+                    "nom_chantier":   nom_chantier.strip(),
+                    "semaine":        semaine,
+                    "camion":         camion,
                     "date_livraison": str(date_liv),
-                    "statut":        "Planifie",
-                    "commentaire":   commentaire.strip(),
+                    "statut":         "Planifie",
+                    "commentaire":    commentaire.strip(),
                 })
                 st.success(f"Livraison planifiee : {tache_sel['ouvrage']} -> {destination} ({semaine})")
 
@@ -281,8 +274,7 @@ def page_planning(client):
         return
 
     semaines_dispo = sorted(livraisons["semaine"].unique().tolist())
-    semaine_sel = st.selectbox("Semaine", semaines_dispo,
-                               index=0 if semaines_dispo else 0)
+    semaine_sel = st.selectbox("Semaine", semaines_dispo)
 
     df_sem = livraisons[livraisons["semaine"] == semaine_sel].copy()
     lundi, vendredi = semaine_to_dates(semaine_sel)
@@ -299,7 +291,6 @@ def page_planning(client):
         st.info("Aucune livraison cette semaine.")
         return
 
-    # Regrouper par camion
     for camion in CAMIONS:
         df_cam = df_sem[df_sem["camion"] == camion]
         if df_cam.empty:
@@ -314,6 +305,7 @@ def page_planning(client):
                 label_dest = f"Chantier : {row['nom_chantier']}"
             statut = row.get("statut", "Planifie")
             badge_class = f"badge-{statut.lower()}" if statut.lower() in ("planifie", "livre", "reporte") else "badge-planifie"
+            commentaire_html = f"<br><em style='font-size:0.85rem;color:#666'>{row.get('commentaire','')}</em>" if row.get("commentaire") else ""
             st.markdown(f"""
             <div class="card {css_class}">
                 <strong>{row.get('ouvrage','')}</strong>
@@ -323,25 +315,23 @@ def page_planning(client):
                 <span class="badge {badge_class}">{statut}</span>
                 &nbsp;&nbsp;
                 <span style="color:#888;font-size:0.85rem">{row.get('date_livraison','')}</span>
-                {f"<br><em style='font-size:0.85rem;color:#666'>{row.get('commentaire','')}</em>" if row.get('commentaire') else ""}
+                {commentaire_html}
             </div>
             """, unsafe_allow_html=True)
 
-        # Mise a jour statut
         with st.expander(f"Mettre a jour le statut ({camion})"):
             for _, row in df_cam.iterrows():
                 col_a, col_b = st.columns([3, 2])
                 with col_a:
                     st.write(f"{row.get('ouvrage','')} -- {row.get('affaire','')}")
                 with col_b:
+                    statut_actuel = row.get("statut", "Planifie")
+                    if statut_actuel not in ["Planifie", "Livre", "Reporte"]:
+                        statut_actuel = "Planifie"
                     new_statut = st.selectbox(
                         "Statut",
                         ["Planifie", "Livre", "Reporte"],
-                        index=["Planifie", "Livre", "Reporte"].index(
-                            row.get("statut", "Planifie")
-                            if row.get("statut", "Planifie") in ["Planifie", "Livre", "Reporte"]
-                            else "Planifie"
-                        ),
+                        index=["Planifie", "Livre", "Reporte"].index(statut_actuel),
                         key=f"statut_{row.get('id_tache','')}_{camion}",
                     )
                     if st.button("Sauvegarder", key=f"btn_{row.get('id_tache','')}_{camion}"):
@@ -375,7 +365,7 @@ def page_dashboard(client):
         col_a, col_b, col_c = st.columns(3)
         for col, dest in zip([col_a, col_b, col_c], DESTINATIONS):
             with col:
-                count = dest_counts.get(dest, 0)
+                count = int(dest_counts.get(dest, 0))
                 color = COLORS.get(dest, "#888")
                 st.markdown(f"""
                 <div style="background:{color};color:white;border-radius:10px;
