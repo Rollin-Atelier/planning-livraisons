@@ -40,6 +40,7 @@ st.markdown("""
 .badge-te { background: #ede9fe; color: #7c3aed; }
 .badge-ta { background: #ffedd5; color: #ea580c; }
 .badge-td { background: #f3f4f6; color: #6b7280; }
+.badge-cam { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 0.72rem; font-weight: 700; margin-right: 4px; color: white; }
 .ouvrage-card { background: white; border-radius: 10px; padding: 12px 16px; margin-bottom: 6px; border-left: 5px solid #16a34a; box-shadow: 0 1px 4px rgba(0,0,0,0.07); }
 .ouvrage-label { font-weight: 600; font-size: 0.9rem; color: #1a2340; }
 .ouvrage-sub { font-size: 0.78rem; color: #888; margin-top: 2px; }
@@ -50,6 +51,9 @@ st.markdown("""
 .day-vide { text-align:center; color:#ccc; font-size:0.8rem; padding:16px 0; }
 .bandeau-jour { background: #1c1c1c; border-left: 4px solid #f97316; color: white; padding: 10px 16px; border-radius: 8px; margin: 12px 0 8px 0; font-weight: 600; }
 .archive-card { background: #f9fafb; border-radius: 10px; padding: 10px 14px; margin-bottom: 4px; border-left: 5px solid #9ca3af; box-shadow: 0 1px 3px rgba(0,0,0,0.05); opacity: 0.85; }
+.legende-cam { display:flex; gap:10px; flex-wrap:wrap; margin:8px 0 16px 0; }
+.legende-item { display:flex; align-items:center; gap:6px; font-size:0.8rem; font-weight:600; }
+.legende-dot { width:14px; height:14px; border-radius:50%; display:inline-block; }
 @media print { header, footer, [data-testid="stToolbar"], [data-testid="stSidebar"], .stTabs, [data-testid="stForm"], button { display: none !important; } }
 </style>
 """, unsafe_allow_html=True)
@@ -61,14 +65,28 @@ TYPES_TRAJET  = ["Livraison ouvrage","Enlevement / Collecte","Livraison autre","
 DESTINATIONS  = ["Peinture","Galvanisation","Chantier","Autre"]
 LIEUX_DEPART  = ["Atelier","Peinture","Galvanisation","Chantier","Autre"]
 LIEUX_ARRIVEE = ["Atelier","Peinture","Galvanisation","Chantier","Autre"]
-CAMIONS       = ["Camion Denjean","Camion poseur","Camion Agenov","Camion autre Semi"]
+CAMIONS       = ["Camion Denjean","Camion poseur","Camion Agenov","Camion autre Semi","Camion Kangoo"]
 STATUTS       = ["Planifie","Livre","Reporte"]
 JOURS_FR      = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi"]
+
+# Couleurs par camion (dark pour badge/PDF, light pour fond carte)
+CAMION_COLORS = {
+    "Camion Denjean":    {"dark": "#1a2340", "light": "#e0e7ff", "hex": "#1a2340"},
+    "Camion poseur":     {"dark": "#15803d", "light": "#dcfce7", "hex": "#15803d"},
+    "Camion Agenov":     {"dark": "#b45309", "light": "#fef3c7", "hex": "#b45309"},
+    "Camion autre Semi": {"dark": "#7c3aed", "light": "#ede9fe", "hex": "#7c3aed"},
+    "Camion Kangoo":     {"dark": "#dc2626", "light": "#fee2e2", "hex": "#dc2626"},
+}
+CAMION_DEFAULT = {"dark": "#6b7280", "light": "#f3f4f6", "hex": "#6b7280"}
+
 TYPE_CARD  = {"Livraison ouvrage":"card-livraison","Enlevement / Collecte":"card-enlevement","Livraison autre":"card-autre","Trajet divers":"card-divers"}
 TYPE_BADGE = {"Livraison ouvrage":"badge-tl","Enlevement / Collecte":"badge-te","Livraison autre":"badge-ta","Trajet divers":"badge-td"}
 TYPE_EMOJI = {"Livraison ouvrage":"\U0001f535","Enlevement / Collecte":"\U0001f7e3","Livraison autre":"\U0001f7e0","Trajet divers":"\u26ab"}
 STATUT_BADGE = {"Planifie":"badge-planifie","Livre":"badge-livre","Reporte":"badge-reporte"}
 HEADER_LIVRAISONS = ["id_trajet","type_trajet","id_tache","affaire","ouvrage","lieu_depart","lieu_depart_autre","lieu_arrivee","lieu_arrivee_autre","destination","nom_chantier","description","adresse","contact_nom","contact_tel","date_livraison","semaine","heure_debut","heure_fin","camion","statut","commentaire"]
+
+def cam_color(cam, key="dark"):
+    return CAMION_COLORS.get(cam, CAMION_DEFAULT)[key]
 
 @st.cache_resource
 def get_client():
@@ -178,6 +196,10 @@ def is_depasse(row):
         return dt_fin < datetime.now() and str(row.get("statut","")) != "Livre"
     except: return False
 
+def cam_badge_html(cam):
+    c = cam_color(cam, "dark")
+    return f'<span class="badge-cam" style="background:{c};">{cam}</span>'
+
 def card_html(row, archive=False):
     typ=str(row.get("type_trajet","")); desc=str(row.get("description","") or row.get("ouvrage","") or "")
     hd=str(row.get("heure_debut","")); hf=str(row.get("heure_fin",""))
@@ -187,8 +209,12 @@ def card_html(row, archive=False):
     l_arr=str(row.get("lieu_arrivee","")); l_arr_a=str(row.get("lieu_arrivee_autre",""))
     lieu_dep_label = l_dep_a if l_dep=="Autre" and l_dep_a else l_dep
     lieu_arr_label = l_arr_a if l_arr=="Autre" and l_arr_a else l_arr
-    cc="archive-card" if archive else TYPE_CARD.get(typ,"card-divers")
-    bc=TYPE_BADGE.get(typ,"badge-td"); sc="badge-archive" if archive else STATUT_BADGE.get(stat,"badge-planifie")
+    cam_dark  = cam_color(cam, "dark")
+    cam_light = cam_color(cam, "light")
+    border_style = f"border-left-color:{cam_dark};" if not archive else ""
+    cc = "archive-card" if archive else f"card {TYPE_CARD.get(typ,'card-divers')}"
+    bc = TYPE_BADGE.get(typ,"badge-td")
+    sc = "badge-archive" if archive else STATUT_BADGE.get(stat,"badge-planifie")
     parts=[]
     if lieu_dep_label and lieu_arr_label: parts.append(f"\U0001f4cd {lieu_dep_label} \u2192 {lieu_arr_label}")
     elif lieu_dep_label: parts.append(f"\U0001f4cd Depart : {lieu_dep_label}")
@@ -197,8 +223,18 @@ def card_html(row, archive=False):
     if hd and hf: parts.append(f"\u23f1 {hd} - {hf}")
     if adr: parts.append(f"\U0001f4cc {adr}")
     if cnt: parts.append(f"\U0001f464 {cnt}")
-    if cam: parts.append(f"\U0001f69a {cam}")
-    return f'<div class="{cc}"><div class="card-titre"><span class="badge {bc}">{typ}</span><span class="badge {sc}">{stat}</span> {desc}</div><div class="card-detail">{"<br>".join(parts)}</div></div>'
+    cam_html = cam_badge_html(cam) if cam and not archive else (f"\U0001f69a {cam}" if cam else "")
+    if cam and not archive:
+        parts.append(f"\U0001f69a {cam_badge_html(cam)}")
+    elif cam:
+        parts.append(f"\U0001f69a {cam}")
+    return f'<div class="{cc}" style="{border_style}"><div class="card-titre"><span class="badge {bc}">{typ}</span><span class="badge {sc}">{stat}</span> {desc}</div><div class="card-detail">{"<br>".join(parts)}</div></div>'
+
+def legende_camions_html():
+    items = ""
+    for cam, cols in CAMION_COLORS.items():
+        items += f'<div class="legende-item"><span class="legende-dot" style="background:{cols["dark"]};"></span>{cam}</div>'
+    return f'<div class="legende-cam">{items}</div>'
 
 def trajet_avec_menu(row, ws, all_rows, key_prefix=""):
     id_t=str(row.get("id_trajet","")); stat_actuel=str(row.get("statut","Planifie"))
@@ -297,7 +333,16 @@ def generate_day_pdf(date_str, trajets):
     LIGHT  = colors.HexColor("#f8fafc")
     BORDER = colors.HexColor("#e2e8f0")
     WHITE  = colors.white
-    GRAY   = colors.HexColor("#6b7280")
+
+    # Couleurs camions dans PDF
+    PDF_CAM_COLORS = {
+        "Camion Denjean":    ("#1a2340", "#e0e7ff"),
+        "Camion poseur":     ("#15803d", "#dcfce7"),
+        "Camion Agenov":     ("#b45309", "#fef3c7"),
+        "Camion autre Semi": ("#7c3aed", "#ede9fe"),
+        "Camion Kangoo":     ("#dc2626", "#fee2e2"),
+    }
+    PDF_CAM_DEFAULT = ("#6b7280", "#f3f4f6")
 
     TYPE_COLORS = {
         "Livraison ouvrage":     colors.HexColor("#1e40af"),
@@ -312,9 +357,9 @@ def generate_day_pdf(date_str, trajets):
         "Trajet divers":         colors.HexColor("#f1f5f9"),
     }
     STATUT_COLORS = {
-        "Planifie": (colors.HexColor("#1d4ed8"), colors.HexColor("#dbeafe")),
-        "Livre":    (colors.HexColor("#15803d"), colors.HexColor("#dcfce7")),
-        "Reporte":  (colors.HexColor("#dc2626"), colors.HexColor("#fee2e2")),
+        "Planifie": ("#1d4ed8", "#dbeafe"),
+        "Livre":    ("#15803d", "#dcfce7"),
+        "Reporte":  ("#dc2626", "#fee2e2"),
     }
     TYPE_LABEL = {
         "Livraison ouvrage":     "LIVRAISON",
@@ -349,7 +394,22 @@ def generate_day_pdf(date_str, trajets):
         ("BOTTOMPADDING",(0,0),(-1,0),  10),
     ]))
     story.append(hdr)
-    story.append(Spacer(1, 0.5*cm))
+    story.append(Spacer(1, 0.4*cm))
+
+    # Legende camions dans le PDF
+    leg_data = [[]]
+    for cam_name, (cdark, clight) in PDF_CAM_COLORS.items():
+        badge = Table([[p(cam_name, bold=True, size=7, color="#ffffff")]], colWidths=[3.2*cm])
+        badge.setStyle(TableStyle([
+            ("BACKGROUND",(0,0),(-1,-1),colors.HexColor(cdark)),
+            ("TOPPADDING",(0,0),(-1,-1),3),("BOTTOMPADDING",(0,0),(-1,-1),3),
+            ("LEFTPADDING",(0,0),(-1,-1),6),("RIGHTPADDING",(0,0),(-1,-1),6),
+        ]))
+        leg_data[0].append(badge)
+    leg_table = Table(leg_data, colWidths=[3.4*cm]*5)
+    leg_table.setStyle(TableStyle([("VALIGN",(0,0),(-1,-1),"MIDDLE"),("LEFTPADDING",(0,0),(-1,-1),2)]))
+    story.append(leg_table)
+    story.append(Spacer(1, 0.4*cm))
 
     nb = len(trajets)
     recap = Table([[p(f"{nb} trajet(s) planifie(s)", bold=True, size=10)]], colWidths=[18*cm])
@@ -386,32 +446,39 @@ def generate_day_pdf(date_str, trajets):
             lieu_dep = l_dep_a if l_dep=="Autre" and l_dep_a else l_dep
             lieu_arr = l_arr_a if l_arr=="Autre" and l_arr_a else l_arr
 
-            tc  = TYPE_COLORS.get(typ, GRAY)
-            tlc = TYPE_LIGHT.get(typ, LIGHT)
-            sc, slc = STATUT_COLORS.get(stat, (colors.HexColor("#1d4ed8"), colors.HexColor("#dbeafe")))
-            typ_lbl = TYPE_LABEL.get(typ, "TRAJET")
-            sc_hex  = "#1d4ed8"
-            if stat=="Livre":     sc_hex="#15803d"
-            elif stat=="Reporte": sc_hex="#dc2626"
+            # Couleur camion pour ce trajet
+            cam_dark_hex, cam_light_hex = PDF_CAM_COLORS.get(cam, PDF_CAM_DEFAULT)
+            cam_dark_c  = colors.HexColor(cam_dark_hex)
+            cam_light_c = colors.HexColor(cam_light_hex)
 
-            badge_typ = Table([[p(typ_lbl, bold=True, size=8, color="#ffffff")]], colWidths=[2.8*cm])
+            tc  = TYPE_COLORS.get(typ, colors.HexColor("#475569"))
+            tlc = TYPE_LIGHT.get(typ, LIGHT)
+            sc_hex, slc_hex = STATUT_COLORS.get(stat, ("#1d4ed8","#dbeafe"))
+            typ_lbl = TYPE_LABEL.get(typ, "TRAJET")
+
+            badge_typ = Table([[p(typ_lbl, bold=True, size=8, color="#ffffff")]], colWidths=[2.6*cm])
             badge_typ.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,-1),tc),
                 ("TOPPADDING",(0,0),(-1,-1),4),("BOTTOMPADDING",(0,0),(-1,-1),4),
                 ("LEFTPADDING",(0,0),(-1,-1),8),("RIGHTPADDING",(0,0),(-1,-1),8)]))
 
-            badge_stat = Table([[p(stat.upper(), bold=True, size=8, color=sc_hex)]], colWidths=[2.5*cm])
-            badge_stat.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,-1),slc),
+            badge_stat = Table([[p(stat.upper(), bold=True, size=8, color=sc_hex)]], colWidths=[2.4*cm])
+            badge_stat.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,-1),colors.HexColor(slc_hex)),
+                ("TOPPADDING",(0,0),(-1,-1),4),("BOTTOMPADDING",(0,0),(-1,-1),4),
+                ("LEFTPADDING",(0,0),(-1,-1),8),("RIGHTPADDING",(0,0),(-1,-1),8)]))
+
+            # Badge camion colore
+            badge_cam = Table([[p(cam, bold=True, size=8, color="#ffffff")]], colWidths=[3.8*cm])
+            badge_cam.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,-1),cam_dark_c),
                 ("TOPPADDING",(0,0),(-1,-1),4),("BOTTOMPADDING",(0,0),(-1,-1),4),
                 ("LEFTPADDING",(0,0),(-1,-1),8),("RIGHTPADDING",(0,0),(-1,-1),8)]))
 
             titre_row = Table([[
                 p(f"{hd}  ->  {hf}", bold=True, size=15),
-                badge_typ, badge_stat,
-                p(f"Vehicule : {cam}", bold=True, size=10),
-            ]], colWidths=[4.5*cm, 3*cm, 3*cm, 6.5*cm])
+                badge_typ, badge_stat, badge_cam,
+            ]], colWidths=[4*cm, 2.8*cm, 2.6*cm, 4.1*cm])
             titre_row.setStyle(TableStyle([
                 ("VALIGN",       (0,0),(-1,-1),"MIDDLE"),
-                ("BACKGROUND",   (0,0),(-1,-1), tlc),
+                ("BACKGROUND",   (0,0),(-1,-1), cam_light_c),
                 ("TOPPADDING",   (0,0),(-1,-1), 12),
                 ("BOTTOMPADDING",(0,0),(-1,-1), 12),
                 ("LEFTPADDING",  (0,0),(-1,-1), 14),
@@ -422,20 +489,16 @@ def generate_day_pdf(date_str, trajets):
                 return [p(label, size=8, color="#9ca3af"), p(value, bold=True, size=vsize)]
 
             body_rows = []
-            if desc:
-                body_rows.append(field_row("OBJET DU TRAJET", desc, 11))
+            if desc:    body_rows.append(field_row("OBJET DU TRAJET", desc, 11))
             if affaire or ouvrage:
                 val = f"{affaire}  -  {ouvrage}" if affaire and ouvrage else affaire or ouvrage
                 body_rows.append(field_row("CHANTIER / OUVRAGE", val))
             if lieu_dep or lieu_arr:
                 ts = f"{lieu_dep}  ->  {lieu_arr}" if lieu_dep and lieu_arr else lieu_dep or lieu_arr
                 body_rows.append(field_row("TRAJET", ts))
-            if adr:
-                body_rows.append(field_row("ADRESSE", adr))
-            if cnt or tel:
-                body_rows.append(field_row("CONTACT", f"{cnt}   {tel}".strip()))
-            if comm:
-                body_rows.append(field_row("NOTE", comm, 9))
+            if adr:     body_rows.append(field_row("ADRESSE", adr))
+            if cnt or tel: body_rows.append(field_row("CONTACT", f"{cnt}   {tel}".strip()))
+            if comm:    body_rows.append(field_row("NOTE", comm, 9))
 
             if body_rows:
                 body_table = Table(body_rows, colWidths=[4*cm, 12.5*cm])
@@ -457,7 +520,7 @@ def generate_day_pdf(date_str, trajets):
 
             card = Table([[titre_row],[body_wrap]], colWidths=[18*cm])
             card.setStyle(TableStyle([
-                ("LINEBEFORE", (0,0),(0,-1), 5, tc),
+                ("LINEBEFORE", (0,0),(0,-1), 5, cam_dark_c),
                 ("LINEABOVE",  (0,0),(-1,0), 0.5, BORDER),
                 ("LINEBELOW",  (0,-1),(-1,-1), 0.5, BORDER),
                 ("LINEAFTER",  (0,0),(-1,-1), 0.5, BORDER),
@@ -505,6 +568,7 @@ def onglet_dashboard(df):
     for col,num,label in [(c1,total,"Trajets actifs"),(c2,len(df_sem),"Cette semaine"),(c3,planifies,"Planifies"),(c4,livres,"Livres total")]:
         with col: st.markdown(f'<div class="stat-card"><div class="stat-num">{num}</div><div class="stat-label">{label}</div></div>',unsafe_allow_html=True)
     st.markdown("---")
+    st.markdown(legende_camions_html(), unsafe_allow_html=True)
     ws=get_ws("livraisons"); all_rows=ws.get_all_records() if ws else []
     st.markdown("### \U0001f7e2 Ouvrages termines \u2014 prets a expedier")
     taches_df=load_taches_terminees()
@@ -646,7 +710,8 @@ def onglet_calendrier(df):
     today=date.today()
     df_sem=df[df["semaine"]==semaine].copy() if not df.empty and "semaine" in df.columns else pd.DataFrame()
     nb=len(df_sem); d0=dates_sem[0].strftime("%d/%m/%Y"); d4=dates_sem[4].strftime("%d/%m/%Y")
-    st.markdown(f'<div style="background:white;border-radius:10px;padding:12px 18px;margin-bottom:16px;border-left:5px solid #f97316;"><strong>Semaine {semaine}</strong> &nbsp;|&nbsp; {d0} au {d4} &nbsp;|&nbsp; <strong>{nb} trajet(s)</strong></div>',unsafe_allow_html=True)
+    st.markdown(f'<div style="background:white;border-radius:10px;padding:12px 18px;margin-bottom:8px;border-left:5px solid #f97316;"><strong>Semaine {semaine}</strong> &nbsp;|&nbsp; {d0} au {d4} &nbsp;|&nbsp; <strong>{nb} trajet(s)</strong></div>',unsafe_allow_html=True)
+    st.markdown(legende_camions_html(), unsafe_allow_html=True)
     cols=st.columns(5)
     for i,(col,d) in enumerate(zip(cols,dates_sem)):
         today_cls="col-jour-today" if d==today else ""
