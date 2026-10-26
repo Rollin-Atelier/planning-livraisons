@@ -176,6 +176,8 @@ def is_depasse(row):
 
 def card_html(row, archive=False):
     typ=str(row.get("type_trajet","")); desc=str(row.get("description","") or row.get("ouvrage","") or "")
+    nom_chantier=str(row.get("nom_chantier",""))
+    if nom_chantier: desc=f"{desc} — {nom_chantier}"
     hd=str(row.get("heure_debut","")); hf=str(row.get("heure_fin",""))
     adr=str(row.get("adresse","")); cnt=str(row.get("contact_nom","")); cam=str(row.get("camion",""))
     stat=str(row.get("statut","Planifie")); affaire=str(row.get("affaire",""))
