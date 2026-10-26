@@ -61,7 +61,7 @@ TYPES_TRAJET  = ["Livraison ouvrage","Enlevement / Collecte","Livraison autre","
 DESTINATIONS  = ["Peinture","Galvanisation","Chantier","Autre"]
 LIEUX_DEPART  = ["Atelier","Peinture","Galvanisation","Chantier","Autre"]
 LIEUX_ARRIVEE = ["Atelier","Peinture","Galvanisation","Chantier","Autre"]
-CAMIONS       = ["Camion 1","Camion 2","Camion 3","Vehicule leger"]
+CAMIONS       = ["Camion Denjean","Camion poseur","Camion Agenov","Camion autre Semi"]
 STATUTS       = ["Planifie","Livre","Reporte"]
 JOURS_FR      = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi"]
 TYPE_CARD  = {"Livraison ouvrage":"card-livraison","Enlevement / Collecte":"card-enlevement","Livraison autre":"card-autre","Trajet divers":"card-divers"}
@@ -70,7 +70,6 @@ TYPE_EMOJI = {"Livraison ouvrage":"\U0001f535","Enlevement / Collecte":"\U0001f7
 STATUT_BADGE = {"Planifie":"badge-planifie","Livre":"badge-livre","Reporte":"badge-reporte"}
 HEADER_LIVRAISONS = ["id_trajet","type_trajet","id_tache","affaire","ouvrage","lieu_depart","lieu_depart_autre","lieu_arrivee","lieu_arrivee_autre","destination","nom_chantier","description","adresse","contact_nom","contact_tel","date_livraison","semaine","heure_debut","heure_fin","camion","statut","commentaire"]
 
-@st.cache_resource
 @st.cache_resource
 def get_client():
     info = dict(st.secrets["gcp_service_account"])
@@ -133,19 +132,23 @@ def load_taches_terminees():
 def save_trajet(row_data):
     ws = get_ws("livraisons") or init_livraisons()
     ws.append_row(row_data)
+    load_livraisons.clear()
 
 def do_update_statut(ws, row_idx, new_statut):
     col_idx = HEADER_LIVRAISONS.index("statut") + 1
     ws.update_cell(row_idx + 2, col_idx, new_statut)
+    load_livraisons.clear()
 
 def do_update_full(ws, row_idx, new_statut, new_date, new_hd, new_hf, new_cam):
     row_num = row_idx + 2
     for field, val in [("statut",new_statut),("date_livraison",str(new_date) if new_date else ""),("heure_debut",new_hd),("heure_fin",new_hf),("camion",new_cam)]:
         col_idx = HEADER_LIVRAISONS.index(field) + 1
         ws.update_cell(row_num, col_idx, val)
+    load_livraisons.clear()
 
 def do_delete_trajet(ws, row_idx):
     ws.delete_rows(row_idx + 2)
+    load_livraisons.clear()
 
 def get_semaines(n=12):
     today  = date.today()
@@ -199,7 +202,7 @@ def card_html(row, archive=False):
 
 def trajet_avec_menu(row, ws, all_rows, key_prefix=""):
     id_t=str(row.get("id_trajet","")); stat_actuel=str(row.get("statut","Planifie"))
-    cam_actuel=str(row.get("camion","Camion 1")); heures=heures_list()
+    cam_actuel=str(row.get("camion","Camion Denjean")); heures=heures_list()
     try:
         date_actuelle=pd.to_datetime(row.get("date_livraison"),errors="coerce")
         date_actuelle=date_actuelle.date() if not pd.isna(date_actuelle) else date.today()
@@ -207,6 +210,7 @@ def trajet_avec_menu(row, ws, all_rows, key_prefix=""):
     hd_actuel=str(row.get("heure_debut","08:00")); hf_actuel=str(row.get("heure_fin","10:00"))
     idx_hd=heures.index(hd_actuel) if hd_actuel in heures else 0
     idx_hf=heures.index(hf_actuel) if hf_actuel in heures else 4
+    idx_cam=CAMIONS.index(cam_actuel) if cam_actuel in CAMIONS else 0
     col_card,col_menu=st.columns([11,1])
     with col_card: st.markdown(card_html(row),unsafe_allow_html=True)
     with col_menu:
@@ -216,7 +220,7 @@ def trajet_avec_menu(row, ws, all_rows, key_prefix=""):
             new_date=st.date_input("Date",value=date_actuelle,key=f"pop_date_{key_prefix}_{id_t}")
             new_hd=st.selectbox("Heure debut",heures,index=idx_hd,key=f"pop_hd_{key_prefix}_{id_t}")
             new_hf=st.selectbox("Heure fin",heures,index=idx_hf,key=f"pop_hf_{key_prefix}_{id_t}")
-            new_cam=st.selectbox("Vehicule",CAMIONS,index=CAMIONS.index(cam_actuel) if cam_actuel in CAMIONS else 0,key=f"pop_cam_{key_prefix}_{id_t}")
+            new_cam=st.selectbox("Vehicule",CAMIONS,index=idx_cam,key=f"pop_cam_{key_prefix}_{id_t}")
             if st.button("Valider",key=f"pop_ok_{key_prefix}_{id_t}",use_container_width=True,type="primary"):
                 if ws:
                     for ri,r in enumerate(all_rows):
@@ -268,7 +272,6 @@ def form_planif_rapide(affaire, ouvrage, id_tache, key_suffix=""):
         try: save_trajet(row); st.success(f"Livraison planifiee : {ouvrage} le {date_str}"); st.balloons(); st.rerun()
         except Exception as e: st.error(f"Erreur : {e}")
 
-# ── GENERATION PDF PAR JOUR ─────────────────────────────────────────────────
 def generate_day_pdf(date_str, trajets):
     from reportlab.lib.pagesizes import A4
     from reportlab.lib import colors
@@ -285,10 +288,10 @@ def generate_day_pdf(date_str, trajets):
     try:    d = dt2.date.fromisoformat(date_str)
     except: d = dt2.date.today()
 
-    JOURS_FR = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"]
+    JOURS_FR2 = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"]
     MOIS_FR  = {1:"janvier",2:"fevrier",3:"mars",4:"avril",5:"mai",6:"juin",
                 7:"juillet",8:"aout",9:"septembre",10:"octobre",11:"novembre",12:"decembre"}
-    jour_label = f"{JOURS_FR[d.weekday()]} {d.day} {MOIS_FR[d.month]} {d.year}"
+    jour_label = f"{JOURS_FR2[d.weekday()]} {d.day} {MOIS_FR[d.month]} {d.year}"
 
     ORANGE = colors.HexColor("#f97316")
     LIGHT  = colors.HexColor("#f8fafc")
@@ -636,10 +639,8 @@ def onglet_ajouter():
 def onglet_calendrier(df):
     st.markdown("### \U0001f4c5 Calendrier de la semaine")
     semaines=get_semaines(); sem_def=sem_courante(); idx_def=semaines.index(sem_def) if sem_def in semaines else 2
-    col_sel,col_btn=st.columns([4,1])
+    col_sel,_=st.columns([4,1])
     with col_sel: semaine=st.selectbox("Semaine",semaines,index=idx_def,label_visibility="collapsed")
-    with col_btn:
-        st.write("")
     dates_sem=semaine_to_dates(semaine)
     if not dates_sem: st.error("Semaine invalide."); return
     today=date.today()
@@ -655,12 +656,12 @@ def onglet_calendrier(df):
             st.markdown(f'<div class="col-jour {today_cls}"><div class="col-jour-header">{JOURS_FR[i]}<br><span class="day-num">{d.day}</span><span style="font-size:0.75rem;color:#888;">{d.strftime("%b").capitalize()}</span></div>{cards}</div>',unsafe_allow_html=True)
             if not df_jour.empty:
                 pdf_key = f"pdf_bytes_{d}"
-                if st.button("🖨️ PDF", key=f"pdf_btn_{d}", use_container_width=True,
+                if st.button("\U0001f5a8\ufe0f PDF", key=f"pdf_btn_{d}", use_container_width=True,
                              help=f"Generer le PDF du {JOURS_FR[i]} {d.strftime('%d/%m/%Y')}"):
                     st.session_state[pdf_key] = generate_day_pdf(str(d), df_jour.to_dict("records"))
                 if st.session_state.get(pdf_key):
                     st.download_button(
-                        label="⬇️ Telecharger",
+                        label="\u2b07\ufe0f Telecharger",
                         data=st.session_state[pdf_key],
                         file_name=f"livraisons_{JOURS_FR[i].lower()}_{d.strftime('%d-%m-%Y')}.pdf",
                         mime="application/pdf",
