@@ -257,20 +257,26 @@ def form_planif_rapide(affaire, ouvrage, id_tache, key_suffix=""):
         try: save_trajet(row); st.success(f"Livraison planifiee : {ouvrage} le {date_str}"); st.balloons(); st.rerun()
         except Exception as e: st.error(f"Erreur : {e}")
 
-
 # ── GENERATION PDF PAR JOUR ─────────────────────────────────────────────────
 def generate_day_pdf(date_str, trajets):
     from reportlab.lib.pagesizes import A4
     from reportlab.lib import colors
     from reportlab.lib.units import cm
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, KeepTogether
+    from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer,
+                                    Table, TableStyle, HRFlowable, KeepTogether)
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
-    import io, datetime as dt2
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+    import io, datetime as dt2, os
+
+    # Enregistrement polices (Helvetica = standard PDF, toujours dispo)
+    FONT_N = "Helvetica"
+    FONT_B = "Helvetica-Bold"
 
     try:
         d = dt2.date.fromisoformat(date_str)
-    except:
+    except Exception:
         d = dt2.date.today()
 
     JOURS_FR = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"]
@@ -316,22 +322,22 @@ def generate_day_pdf(date_str, trajets):
                                topMargin=1.5*cm,  bottomMargin=1.5*cm)
     story  = []
 
-    # Header
+    def p(txt, bold=False, size=10, color="#1c1c1c", align=TA_LEFT):
+        fn = FONT_B if bold else FONT_N
+        return Paragraph(txt, ParagraphStyle(
+            "_", fontName=fn, fontSize=size,
+            textColor=colors.HexColor(color), alignment=align,
+            leading=size*1.35
+        ))
+
+    # ── HEADER ──
     hdr = Table([[
-        Paragraph(
-            '<font name="DejaVuSans-Bold" size="26" color="#f97316">Denjean</font><br/>' +
-            '<font name="DejaVuSans" size="8" color="#aaaaaa">ARTISAN DU METAL</font>',
-            styles["Normal"]
-        ),
-        Paragraph(
-            f'<font name="DejaVuSans-Bold" size="15" color="#1c1c1c">Planning des livraisons</font><br/>' +
-            f'<font name="DejaVuSans-Bold" size="12" color="#f97316">{jour_label}</font>',
-            styles["Normal"]
-        ),
-        Paragraph(
-            f'<font name="DejaVuSans" size="8" color="#9ca3af">Imprime le<br/>{dt2.date.today().strftime("%d/%m/%Y")}</font>',
-            ParagraphStyle("r", alignment=TA_RIGHT, fontName="DejaVuSans", fontSize=8, textColor=GRAY)
-        ),
+        p("Denjean", bold=True, size=26, color="#f97316"),
+        Table([[
+            p("Planning des livraisons", bold=True, size=15, color="#1c1c1c"),
+            p(jour_label, bold=True, size=12, color="#f97316"),
+        ]], colWidths=[10*cm], rowHeights=[None, None]),
+        p(f"Imprime le\n{dt2.date.today().strftime('%d/%m/%Y')}", size=8, color="#9ca3af", align=TA_RIGHT),
     ]], colWidths=[4*cm, 10*cm, 4*cm])
     hdr.setStyle(TableStyle([
         ("VALIGN",       (0,0),(-1,-1), "MIDDLE"),
@@ -342,12 +348,7 @@ def generate_day_pdf(date_str, trajets):
     story.append(Spacer(1, 0.5*cm))
 
     nb = len(trajets)
-    recap = Table([[
-        Paragraph(
-            f'<font name="DejaVuSans-Bold" size="10" color="#1c1c1c">{nb} trajet(s) planifie(s)</font>',
-            styles["Normal"]
-        ),
-    ]], colWidths=[18*cm])
+    recap = Table([[p(f"{nb} trajet(s) planifie(s)", bold=True, size=10)]], colWidths=[18*cm])
     recap.setStyle(TableStyle([
         ("BACKGROUND",   (0,0),(-1,-1), LIGHT),
         ("TOPPADDING",   (0,0),(-1,-1), 7),
@@ -360,10 +361,7 @@ def generate_day_pdf(date_str, trajets):
 
     if not trajets:
         story.append(Spacer(1, 2*cm))
-        story.append(Paragraph(
-            "Aucun trajet planifie pour cette journee.",
-            ParagraphStyle("c", alignment=TA_CENTER, fontName="DejaVuSans", fontSize=12, textColor=GRAY)
-        ))
+        story.append(p("Aucun trajet planifie pour cette journee.", size=12, color="#9ca3af", align=TA_CENTER))
     else:
         for i, t in enumerate(trajets):
             typ     = str(t.get("type_trajet","Trajet divers"))
@@ -392,31 +390,28 @@ def generate_day_pdf(date_str, trajets):
             typ_lbl = TYPE_LABEL.get(typ, "TRAJET")
 
             sc_hex = "#1d4ed8"
-            if stat=="Livre":    sc_hex="#15803d"
+            if stat=="Livre":     sc_hex="#15803d"
             elif stat=="Reporte": sc_hex="#dc2626"
 
-            def p(txt, fname="DejaVuSans", size=10, color="#1c1c1c", align=TA_LEFT):
-                return Paragraph(
-                    f'<font name="{fname}" size="{size}" color="{color}">{txt}</font>',
-                    ParagraphStyle("_", fontName=fname, fontSize=size,
-                                   textColor=colors.HexColor(color), alignment=align)
-                )
-
-            badge_typ = Table([[p(typ_lbl, "DejaVuSans-Bold", 8, "#ffffff")]], colWidths=[2.8*cm])
-            badge_typ.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,-1),tc),
+            badge_typ = Table([[p(typ_lbl, bold=True, size=8, color="#ffffff")]], colWidths=[2.8*cm])
+            badge_typ.setStyle(TableStyle([
+                ("BACKGROUND",(0,0),(-1,-1),tc),
                 ("TOPPADDING",(0,0),(-1,-1),4),("BOTTOMPADDING",(0,0),(-1,-1),4),
-                ("LEFTPADDING",(0,0),(-1,-1),8),("RIGHTPADDING",(0,0),(-1,-1),8)]))
+                ("LEFTPADDING",(0,0),(-1,-1),8),("RIGHTPADDING",(0,0),(-1,-1),8),
+            ]))
 
-            badge_stat = Table([[p(stat.upper(), "DejaVuSans-Bold", 8, sc_hex)]], colWidths=[2.5*cm])
-            badge_stat.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,-1),slc),
+            badge_stat = Table([[p(stat.upper(), bold=True, size=8, color=sc_hex)]], colWidths=[2.5*cm])
+            badge_stat.setStyle(TableStyle([
+                ("BACKGROUND",(0,0),(-1,-1),slc),
                 ("TOPPADDING",(0,0),(-1,-1),4),("BOTTOMPADDING",(0,0),(-1,-1),4),
-                ("LEFTPADDING",(0,0),(-1,-1),8),("RIGHTPADDING",(0,0),(-1,-1),8)]))
+                ("LEFTPADDING",(0,0),(-1,-1),8),("RIGHTPADDING",(0,0),(-1,-1),8),
+            ]))
 
             titre_row = Table([[
-                p(f'{hd}  ->  {hf}', "DejaVuSans-Bold", 15, "#1c1c1c"),
+                p(f"{hd}  ->  {hf}", bold=True, size=15, color="#1c1c1c"),
                 badge_typ,
                 badge_stat,
-                p(f'Vehicule : {cam}', "DejaVuSans-Bold", 10, "#1c1c1c"),
+                p(f"Vehicule : {cam}", bold=True, size=10, color="#1c1c1c"),
             ]], colWidths=[4.5*cm, 3*cm, 3*cm, 6.5*cm])
             titre_row.setStyle(TableStyle([
                 ("VALIGN",       (0,0),(-1,-1),"MIDDLE"),
@@ -429,8 +424,8 @@ def generate_day_pdf(date_str, trajets):
 
             def field_row(label, value, vsize=10):
                 return [
-                    p(label, "DejaVuSans", 8, "#9ca3af"),
-                    p(value, "DejaVuSans-Bold", vsize, "#1c1c1c"),
+                    p(label, bold=False, size=8, color="#9ca3af"),
+                    p(value, bold=True,  size=vsize, color="#1c1c1c"),
                 ]
 
             body_rows = []
@@ -480,9 +475,9 @@ def generate_day_pdf(date_str, trajets):
     story.append(Spacer(1, 0.3*cm))
     story.append(HRFlowable(width="100%", thickness=0.5, color=BORDER))
     story.append(Spacer(1, 0.15*cm))
-    story.append(Paragraph(
-        f'Denjean - Artisan du Metal   .   {jour_label}   .   {nb} trajet(s)',
-        ParagraphStyle("footer", alignment=TA_CENTER, fontName="DejaVuSans", fontSize=8, textColor=GRAY)
+    story.append(p(
+        f"Denjean - Artisan du Metal   .   {jour_label}   .   {nb} trajet(s)",
+        size=8, color="#9ca3af", align=TA_CENTER
     ))
 
     doc.build(story)
@@ -657,7 +652,7 @@ def onglet_calendrier(df):
     col_sel,col_btn=st.columns([4,1])
     with col_sel: semaine=st.selectbox("Semaine",semaines,index=idx_def,label_visibility="collapsed")
     with col_btn:
-        st.markdown("<div style='padding-top:4px;font-size:0.78rem;color:#6b7280;'>🖨️ Cliquez sur le bouton sous chaque jour pour telecharger le PDF</div>", unsafe_allow_html=True)
+        if st.button("\U0001f5a8\ufe0f Imprimer",use_container_width=True): components.html("<script>window.parent.print();</script>",height=0)
     dates_sem=semaine_to_dates(semaine)
     if not dates_sem: st.error("Semaine invalide."); return
     today=date.today()
@@ -671,19 +666,6 @@ def onglet_calendrier(df):
         with col:
             cards="".join(card_html(r) for _,r in df_jour.iterrows()) if not df_jour.empty else '<div class="day-vide">\u2014</div>'
             st.markdown(f'<div class="col-jour {today_cls}"><div class="col-jour-header">{JOURS_FR[i]}<br><span class="day-num">{d.day}</span><span style="font-size:0.75rem;color:#888;">{d.strftime("%b").capitalize()}</span></div>{cards}</div>',unsafe_allow_html=True)
-            if not df_jour.empty:
-                trajets_jour = df_jour.to_dict("records")
-                pdf_bytes = generate_day_pdf(str(d), trajets_jour)
-                fname = f"livraisons_{JOURS_FR[i].lower()}_{d.strftime('%d-%m-%Y')}.pdf"
-                st.download_button(
-                    label="🖨️",
-                    data=pdf_bytes,
-                    file_name=fname,
-                    mime="application/pdf",
-                    key=f"pdf_{d}",
-                    use_container_width=True,
-                    help=f"Telecharger le PDF du {JOURS_FR[i]} {d.strftime('%d/%m/%Y')}"
-                )
     st.markdown("---"); st.markdown("### \U0001f4cb Detail de la semaine")
     if df_sem.empty: st.info("Aucun trajet cette semaine."); return
     ws=get_ws("livraisons"); all_rows=ws.get_all_records() if ws else []
