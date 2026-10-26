@@ -71,12 +71,14 @@ STATUT_BADGE = {"Planifie":"badge-planifie","Livre":"badge-livre","Reporte":"bad
 HEADER_LIVRAISONS = ["id_trajet","type_trajet","id_tache","affaire","ouvrage","lieu_depart","lieu_depart_autre","lieu_arrivee","lieu_arrivee_autre","destination","nom_chantier","description","adresse","contact_nom","contact_tel","date_livraison","semaine","heure_debut","heure_fin","camion","statut","commentaire"]
 
 @st.cache_resource
+@st.cache_resource
 def get_client():
     info = dict(st.secrets["gcp_service_account"])
     info["private_key"] = info["private_key"].replace("\\n","\n")
     creds = Credentials.from_service_account_info(info, scopes=SCOPES)
     return gspread.authorize(creds)
 
+@st.cache_resource
 def open_sheet():
     return get_client().open_by_url(SHEET_URL)
 
@@ -87,15 +89,24 @@ def get_ws(name):
 def init_livraisons():
     if st.session_state.get("livraisons_init_done"):
         return get_ws("livraisons")
-    sh = open_sheet()
-    try:    ws = sh.worksheet("livraisons")
-    except gspread.WorksheetNotFound:
-        ws = sh.add_worksheet("livraisons", rows=1000, cols=25)
-    if ws.row_values(1) != HEADER_LIVRAISONS:
-        ws.clear(); ws.append_row(HEADER_LIVRAISONS)
-    st.session_state["livraisons_init_done"] = True
-    return ws
+    try:
+        sh = open_sheet()
+        try:    ws = sh.worksheet("livraisons")
+        except gspread.WorksheetNotFound:
+            ws = sh.add_worksheet("livraisons", rows=1000, cols=25)
+        try:
+            header = ws.row_values(1)
+            if header != HEADER_LIVRAISONS:
+                ws.clear(); ws.append_row(HEADER_LIVRAISONS)
+        except Exception:
+            pass
+        st.session_state["livraisons_init_done"] = True
+        return ws
+    except Exception as e:
+        st.warning(f"Connexion Google Sheets en cours... ({e})")
+        return None
 
+@st.cache_data(ttl=30)
 def load_livraisons():
     ws = get_ws("livraisons")
     if ws is None: return pd.DataFrame()
@@ -256,216 +267,6 @@ def form_planif_rapide(affaire, ouvrage, id_tache, key_suffix=""):
         row=[str(uuid.uuid4())[:8],"Livraison ouvrage",id_tache,affaire,ouvrage,lieu_depart,lieu_depart_autre,lieu_arrivee,lieu_arrivee_autre,destination,nom_chantier,f"Livraison {ouvrage}",adresse,contact_nom,contact_tel,date_liv,semaine,heure_debut,heure_fin,camion,"Planifie",commentaire]
         try: save_trajet(row); st.success(f"Livraison planifiee : {ouvrage} le {date_str}"); st.balloons(); st.rerun()
         except Exception as e: st.error(f"Erreur : {e}")
-
-# ── GENERATION PDF PAR JOUR ─────────────────────────────────────────────────
-def generate_day_pdf(date_str, trajets):
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib import colors
-    from reportlab.lib.units import cm
-    from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer,
-                                    Table, TableStyle, HRFlowable, KeepTogether)
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
-    import io, datetime as dt2
-
-    FONT_N = "Helvetica"
-    FONT_B = "Helvetica-Bold"
-
-    try:
-        d = dt2.date.fromisoformat(date_str)
-    except Exception:
-        d = dt2.date.today()
-
-    JOURS_FR = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"]
-    MOIS_FR  = {1:"janvier",2:"fevrier",3:"mars",4:"avril",5:"mai",6:"juin",
-                7:"juillet",8:"aout",9:"septembre",10:"octobre",11:"novembre",12:"decembre"}
-    jour_label = f"{JOURS_FR[d.weekday()]} {d.day} {MOIS_FR[d.month]} {d.year}"
-
-    ORANGE = colors.HexColor("#f97316")
-    DARK   = colors.HexColor("#1c1c1c")
-    GRAY   = colors.HexColor("#6b7280")
-    LIGHT  = colors.HexColor("#f8fafc")
-    BORDER = colors.HexColor("#e2e8f0")
-    WHITE  = colors.white
-
-    TYPE_COLORS = {
-        "Livraison ouvrage":     colors.HexColor("#1e40af"),
-        "Enlevement / Collecte": colors.HexColor("#6d28d9"),
-        "Livraison autre":       colors.HexColor("#ea580c"),
-        "Trajet divers":         colors.HexColor("#475569"),
-    }
-    TYPE_LIGHT = {
-        "Livraison ouvrage":     colors.HexColor("#dbeafe"),
-        "Enlevement / Collecte": colors.HexColor("#ede9fe"),
-        "Livraison autre":       colors.HexColor("#ffedd5"),
-        "Trajet divers":         colors.HexColor("#f1f5f9"),
-    }
-    STATUT_COLORS = {
-        "Planifie": (colors.HexColor("#1d4ed8"), colors.HexColor("#dbeafe")),
-        "Livre":    (colors.HexColor("#15803d"), colors.HexColor("#dcfce7")),
-        "Reporte":  (colors.HexColor("#dc2626"), colors.HexColor("#fee2e2")),
-    }
-    TYPE_LABEL = {
-        "Livraison ouvrage":     "LIVRAISON",
-        "Enlevement / Collecte": "ENLEVEMENT",
-        "Livraison autre":       "LIVRAISON",
-        "Trajet divers":         "TRAJET",
-    }
-
-    def p(txt, bold=False, size=10, color="#1c1c1c", align=TA_LEFT):
-        fn = FONT_B if bold else FONT_N
-        return Paragraph(str(txt), ParagraphStyle(
-            "_", fontName=fn, fontSize=size,
-            textColor=colors.HexColor(color), alignment=align, leading=size*1.4
-        ))
-
-    styles = getSampleStyleSheet()
-    buf    = io.BytesIO()
-    doc    = SimpleDocTemplate(buf, pagesize=A4,
-                               leftMargin=1.8*cm, rightMargin=1.8*cm,
-                               topMargin=1.5*cm,  bottomMargin=1.5*cm)
-    story  = []
-
-    # Header
-    hdr = Table([[
-        p("Denjean", bold=True, size=26, color="#f97316"),
-        Table([[p("Planning des livraisons", bold=True, size=15)],
-               [p(jour_label, bold=True, size=12, color="#f97316")]],
-              colWidths=[10*cm]),
-        p(f"Imprime le {dt2.date.today().strftime('%d/%m/%Y')}", size=8, color="#9ca3af", align=TA_RIGHT),
-    ]], colWidths=[4*cm, 10*cm, 4*cm])
-    hdr.setStyle(TableStyle([
-        ("VALIGN",       (0,0),(-1,-1), "MIDDLE"),
-        ("LINEBELOW",    (0,0),(-1,0),  3, ORANGE),
-        ("BOTTOMPADDING",(0,0),(-1,0),  10),
-    ]))
-    story.append(hdr)
-    story.append(Spacer(1, 0.5*cm))
-
-    nb = len(trajets)
-    recap = Table([[p(f"{nb} trajet(s) planifie(s)", bold=True, size=10)]], colWidths=[18*cm])
-    recap.setStyle(TableStyle([
-        ("BACKGROUND",   (0,0),(-1,-1), LIGHT),
-        ("TOPPADDING",   (0,0),(-1,-1), 7),
-        ("BOTTOMPADDING",(0,0),(-1,-1), 7),
-        ("LEFTPADDING",  (0,0),(-1,-1), 12),
-        ("LINEBELOW",    (0,0),(-1,-1), 0.5, BORDER),
-    ]))
-    story.append(recap)
-    story.append(Spacer(1, 0.5*cm))
-
-    if not trajets:
-        story.append(p("Aucun trajet planifie pour cette journee.", size=12, color="#9ca3af", align=TA_CENTER))
-    else:
-        for i, t in enumerate(trajets):
-            typ     = str(t.get("type_trajet","Trajet divers"))
-            desc    = str(t.get("description","") or t.get("ouvrage","") or "")
-            hd      = str(t.get("heure_debut",""))
-            hf      = str(t.get("heure_fin",""))
-            cam     = str(t.get("camion",""))
-            adr     = str(t.get("adresse",""))
-            cnt     = str(t.get("contact_nom",""))
-            tel     = str(t.get("contact_tel",""))
-            stat    = str(t.get("statut","Planifie"))
-            affaire = str(t.get("affaire",""))
-            ouvrage = str(t.get("ouvrage",""))
-            l_dep   = str(t.get("lieu_depart",""))
-            l_dep_a = str(t.get("lieu_depart_autre",""))
-            l_arr   = str(t.get("lieu_arrivee",""))
-            l_arr_a = str(t.get("lieu_arrivee_autre",""))
-            comm    = str(t.get("commentaire",""))
-
-            lieu_dep = l_dep_a if l_dep=="Autre" and l_dep_a else l_dep
-            lieu_arr = l_arr_a if l_arr=="Autre" and l_arr_a else l_arr
-
-            tc  = TYPE_COLORS.get(typ, GRAY)
-            tlc = TYPE_LIGHT.get(typ, LIGHT)
-            sc, slc = STATUT_COLORS.get(stat, (colors.HexColor("#1d4ed8"), colors.HexColor("#dbeafe")))
-            typ_lbl = TYPE_LABEL.get(typ, "TRAJET")
-            sc_hex  = "#1d4ed8"
-            if stat=="Livre":     sc_hex="#15803d"
-            elif stat=="Reporte": sc_hex="#dc2626"
-
-            badge_typ = Table([[p(typ_lbl, bold=True, size=8, color="#ffffff")]], colWidths=[2.8*cm])
-            badge_typ.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,-1),tc),
-                ("TOPPADDING",(0,0),(-1,-1),4),("BOTTOMPADDING",(0,0),(-1,-1),4),
-                ("LEFTPADDING",(0,0),(-1,-1),8),("RIGHTPADDING",(0,0),(-1,-1),8)]))
-
-            badge_stat = Table([[p(stat.upper(), bold=True, size=8, color=sc_hex)]], colWidths=[2.5*cm])
-            badge_stat.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,-1),slc),
-                ("TOPPADDING",(0,0),(-1,-1),4),("BOTTOMPADDING",(0,0),(-1,-1),4),
-                ("LEFTPADDING",(0,0),(-1,-1),8),("RIGHTPADDING",(0,0),(-1,-1),8)]))
-
-            titre_row = Table([[
-                p(f"{hd}  ->  {hf}", bold=True, size=15),
-                badge_typ,
-                badge_stat,
-                p(f"Vehicule : {cam}", bold=True, size=10),
-            ]], colWidths=[4.5*cm, 3*cm, 3*cm, 6.5*cm])
-            titre_row.setStyle(TableStyle([
-                ("VALIGN",       (0,0),(-1,-1),"MIDDLE"),
-                ("BACKGROUND",   (0,0),(-1,-1), tlc),
-                ("TOPPADDING",   (0,0),(-1,-1), 12),
-                ("BOTTOMPADDING",(0,0),(-1,-1), 12),
-                ("LEFTPADDING",  (0,0),(-1,-1), 14),
-                ("RIGHTPADDING", (0,0),(-1,-1), 8),
-            ]))
-
-            def field_row(label, value, vsize=10):
-                return [p(label, size=8, color="#9ca3af"), p(value, bold=True, size=vsize)]
-
-            body_rows = []
-            if desc:
-                body_rows.append(field_row("OBJET DU TRAJET", desc, 11))
-            if affaire or ouvrage:
-                val = f"{affaire}  -  {ouvrage}" if affaire and ouvrage else affaire or ouvrage
-                body_rows.append(field_row("CHANTIER / OUVRAGE", val))
-            if lieu_dep or lieu_arr:
-                ts = f"{lieu_dep}  ->  {lieu_arr}" if lieu_dep and lieu_arr else lieu_dep or lieu_arr
-                body_rows.append(field_row("TRAJET", ts))
-            if adr:
-                body_rows.append(field_row("ADRESSE", adr))
-            if cnt or tel:
-                body_rows.append(field_row("CONTACT", f"{cnt}   {tel}".strip()))
-            if comm:
-                body_rows.append(field_row("NOTE", comm, 9))
-
-            if body_rows:
-                body_table = Table(body_rows, colWidths=[4*cm, 12.5*cm])
-                body_table.setStyle(TableStyle([
-                    ("VALIGN",       (0,0),(-1,-1),"TOP"),
-                    ("TOPPADDING",   (0,0),(-1,-1), 6),
-                    ("BOTTOMPADDING",(0,0),(-1,-1), 6),
-                    ("LEFTPADDING",  (0,0),(-1,-1), 14),
-                    ("LINEBELOW",    (0,0),(-1,-2), 0.3, BORDER),
-                ]))
-                body_wrap = Table([[body_table]], colWidths=[18*cm])
-                body_wrap.setStyle(TableStyle([
-                    ("BACKGROUND",   (0,0),(-1,-1), WHITE),
-                    ("TOPPADDING",   (0,0),(-1,-1), 2),
-                    ("BOTTOMPADDING",(0,0),(-1,-1), 6),
-                ]))
-            else:
-                body_wrap = Spacer(1, 0.3*cm)
-
-            card = Table([[titre_row],[body_wrap]], colWidths=[18*cm])
-            card.setStyle(TableStyle([
-                ("LINEBEFORE", (0,0),(0,-1), 5, tc),
-                ("LINEABOVE",  (0,0),(-1,0), 0.5, BORDER),
-                ("LINEBELOW",  (0,-1),(-1,-1), 0.5, BORDER),
-                ("LINEAFTER",  (0,0),(-1,-1), 0.5, BORDER),
-            ]))
-            story.append(KeepTogether([card]))
-            story.append(Spacer(1, 0.5*cm))
-
-    story.append(Spacer(1, 0.3*cm))
-    story.append(HRFlowable(width="100%", thickness=0.5, color=BORDER))
-    story.append(Spacer(1, 0.15*cm))
-    story.append(p(f"Denjean - Artisan du Metal   .   {jour_label}   .   {nb} trajet(s)",
-                   size=8, color="#9ca3af", align=TA_CENTER))
-    doc.build(story)
-    buf.seek(0)
-    return buf.read()
 
 def check_auth():
     if "auth" not in st.session_state: st.session_state.auth=False
@@ -635,7 +436,7 @@ def onglet_calendrier(df):
     col_sel,col_btn=st.columns([4,1])
     with col_sel: semaine=st.selectbox("Semaine",semaines,index=idx_def,label_visibility="collapsed")
     with col_btn:
-        st.write("")
+        if st.button("\U0001f5a8\ufe0f Imprimer",use_container_width=True): components.html("<script>window.parent.print();</script>",height=0)
     dates_sem=semaine_to_dates(semaine)
     if not dates_sem: st.error("Semaine invalide."); return
     today=date.today()
@@ -649,20 +450,6 @@ def onglet_calendrier(df):
         with col:
             cards="".join(card_html(r) for _,r in df_jour.iterrows()) if not df_jour.empty else '<div class="day-vide">\u2014</div>'
             st.markdown(f'<div class="col-jour {today_cls}"><div class="col-jour-header">{JOURS_FR[i]}<br><span class="day-num">{d.day}</span><span style="font-size:0.75rem;color:#888;">{d.strftime("%b").capitalize()}</span></div>{cards}</div>',unsafe_allow_html=True)
-            if not df_jour.empty:
-                pdf_key = f"pdf_bytes_{d}"
-                if st.button("🖨️ PDF", key=f"pdf_btn_{d}", use_container_width=True,
-                             help=f"Generer le PDF du {JOURS_FR[i]} {d.strftime('%d/%m/%Y')}"):
-                    st.session_state[pdf_key] = generate_day_pdf(str(d), df_jour.to_dict("records"))
-                if st.session_state.get(pdf_key):
-                    st.download_button(
-                        label="⬇️ Telecharger",
-                        data=st.session_state[pdf_key],
-                        file_name=f"livraisons_{JOURS_FR[i].lower()}_{d.strftime('%d-%m-%Y')}.pdf",
-                        mime="application/pdf",
-                        key=f"pdf_dl_{d}",
-                        use_container_width=True,
-                    )
     st.markdown("---"); st.markdown("### \U0001f4cb Detail de la semaine")
     if df_sem.empty: st.info("Aucun trajet cette semaine."); return
     ws=get_ws("livraisons"); all_rows=ws.get_all_records() if ws else []
