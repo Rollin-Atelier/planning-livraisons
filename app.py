@@ -90,23 +90,23 @@ def init_livraisons():
     sh = open_sheet()
     try:
         ws = sh.worksheet("livraisons")
-        # Verifier le header seulement si la feuille semble vide
         try:
             first_row = ws.row_values(1)
             if first_row and first_row[0] == "id_trajet":
-                pass  # Header deja present, on ne touche a rien
+                pass
             elif not first_row:
                 ws.append_row(HEADER_LIVRAISONS)
             else:
                 ws.clear(); ws.append_row(HEADER_LIVRAISONS)
         except Exception:
-            pass  # En cas d erreur API on continue quand meme
+            pass
     except gspread.WorksheetNotFound:
         ws = sh.add_worksheet("livraisons", rows=1000, cols=25)
         ws.append_row(HEADER_LIVRAISONS)
     st.session_state["livraisons_init_done"] = True
     return ws
 
+@st.cache_data(ttl=30)
 def load_livraisons():
     ws = get_ws("livraisons")
     if ws is None: return pd.DataFrame()
@@ -119,6 +119,7 @@ def load_livraisons():
         if col not in df.columns: df[col] = ""
     return df
 
+@st.cache_data(ttl=30)
 def load_taches_terminees():
     ws = get_ws("taches")
     if ws is None: return pd.DataFrame()
@@ -222,13 +223,26 @@ def trajet_avec_menu(row, ws, all_rows, key_prefix=""):
                     for ri,r in enumerate(all_rows):
                         if str(r.get("id_trajet",""))==id_t:
                             do_update_full(ws,ri,new_stat,new_date,new_hd,new_hf,new_cam)
-                            st.success("Mis a jour !"); st.rerun(); break
+                            load_livraisons.clear(); st.success("Mis a jour !"); st.rerun(); break
             st.markdown("---")
-            if st.button("\U0001f5d1 Supprimer",key=f"pop_del_{key_prefix}_{id_t}",use_container_width=True):
-                if ws:
-                    for ri,r in enumerate(all_rows):
-                        if str(r.get("id_trajet",""))==id_t:
-                            do_delete_trajet(ws,ri); st.success("Supprime !"); st.rerun(); break
+            confirm_key = f"confirm_del_{key_prefix}_{id_t}"
+            if not st.session_state.get(confirm_key, False):
+                if st.button("\U0001f5d1 Supprimer",key=f"pop_del_{key_prefix}_{id_t}",use_container_width=True):
+                    st.session_state[confirm_key] = True; st.rerun()
+            else:
+                st.warning("Confirmer la suppression ?")
+                col_oui,col_non = st.columns(2)
+                with col_oui:
+                    if st.button("Oui, supprimer",key=f"pop_del_oui_{key_prefix}_{id_t}",use_container_width=True,type="primary"):
+                        if ws:
+                            for ri,r in enumerate(all_rows):
+                                if str(r.get("id_trajet",""))==id_t:
+                                    do_delete_trajet(ws,ri); load_livraisons.clear()
+                                    st.session_state.pop(confirm_key,None)
+                                    st.success("Supprime !"); st.rerun(); break
+                with col_non:
+                    if st.button("Annuler",key=f"pop_del_non_{key_prefix}_{id_t}",use_container_width=True):
+                        st.session_state.pop(confirm_key,None); st.rerun()
 
 def form_planif_rapide(affaire, ouvrage, id_tache, key_suffix=""):
     semaines=get_semaines(); sem_def=sem_courante()
@@ -265,7 +279,7 @@ def form_planif_rapide(affaire, ouvrage, id_tache, key_suffix=""):
             try: idx_d=opts_dates.index(date_str); date_liv=dates_sem[idx_d].strftime("%Y-%m-%d")
             except: date_liv=""
         row=[str(uuid.uuid4())[:8],"Livraison ouvrage",id_tache,affaire,ouvrage,lieu_depart,lieu_depart_autre,lieu_arrivee,lieu_arrivee_autre,destination,nom_chantier,f"Livraison {ouvrage}",adresse,contact_nom,contact_tel,date_liv,semaine,heure_debut,heure_fin,camion,"Planifie",commentaire]
-        try: save_trajet(row); st.success(f"Livraison planifiee : {ouvrage} le {date_str}"); st.balloons(); st.rerun()
+        try: save_trajet(row); load_livraisons.clear(); st.success(f"Livraison planifiee : {ouvrage} le {date_str}"); st.balloons(); st.rerun()
         except Exception as e: st.error(f"Erreur : {e}")
 
 def check_auth():
@@ -364,7 +378,7 @@ def onglet_dashboard(df):
                         if st.button("Marquer Livre",key=f"arch_livre_{id_t}",use_container_width=True,type="primary"):
                             if ws:
                                 for ri,r in enumerate(all_rows):
-                                    if str(r.get("id_trajet",""))==id_t: do_update_statut(ws,ri,"Livre"); st.success("Mis a jour !"); st.rerun(); break
+                                    if str(r.get("id_trajet",""))==id_t: do_update_statut(ws,ri,"Livre"); load_livraisons.clear(); st.success("Mis a jour !"); st.rerun(); break
                         if st.button("\U0001f5d1 Supprimer",key=f"arch_del_{id_t}",use_container_width=True):
                             if ws:
                                 for ri,r in enumerate(all_rows):
@@ -427,22 +441,28 @@ def onglet_ajouter():
             try: idx_d=opts_dates.index(date_str); date_liv=dates_sem[idx_d].strftime("%Y-%m-%d")
             except: date_liv=""
         row=[str(uuid.uuid4())[:8],type_trajet_pre,id_tache,affaire,ouvrage,lieu_depart,lieu_depart_autre,lieu_arrivee,lieu_arrivee_autre,destination,nom_chantier,description,adresse,contact_nom,contact_tel,date_liv,semaine,heure_debut,heure_fin,camion,"Planifie",commentaire]
-        try: save_trajet(row); st.success(f"Trajet enregistre : {description}"); st.balloons()
+        try: save_trajet(row); load_livraisons.clear(); st.success(f"Trajet enregistre : {description}"); st.balloons(); st.rerun()
         except Exception as e: st.error(f"Erreur : {e}")
 
 def onglet_calendrier(df):
     st.markdown("### \U0001f4c5 Calendrier de la semaine")
     semaines=get_semaines(); sem_def=sem_courante(); idx_def=semaines.index(sem_def) if sem_def in semaines else 2
-    col_sel,col_btn=st.columns([4,1])
+    col_sel,col_veh,col_btn=st.columns([3,2,1])
     with col_sel: semaine=st.selectbox("Semaine",semaines,index=idx_def,label_visibility="collapsed")
+    with col_veh:
+        options_veh=["Tous les vehicules"]+CAMIONS
+        filtre_veh=st.selectbox("Vehicule",options_veh,label_visibility="collapsed",key="cal_filtre_veh")
     with col_btn:
         if st.button("\U0001f5a8\ufe0f Imprimer",use_container_width=True): components.html("<script>window.parent.print();</script>",height=0)
     dates_sem=semaine_to_dates(semaine)
     if not dates_sem: st.error("Semaine invalide."); return
     today=date.today()
     df_sem=df[df["semaine"]==semaine].copy() if not df.empty and "semaine" in df.columns else pd.DataFrame()
+    if filtre_veh != "Tous les vehicules" and not df_sem.empty and "camion" in df_sem.columns:
+        df_sem=df_sem[df_sem["camion"]==filtre_veh].copy()
     nb=len(df_sem); d0=dates_sem[0].strftime("%d/%m/%Y"); d4=dates_sem[4].strftime("%d/%m/%Y")
-    st.markdown(f'<div style="background:white;border-radius:10px;padding:12px 18px;margin-bottom:16px;border-left:5px solid #f97316;"><strong>Semaine {semaine}</strong> &nbsp;|&nbsp; {d0} au {d4} &nbsp;|&nbsp; <strong>{nb} trajet(s)</strong></div>',unsafe_allow_html=True)
+    filtre_label=f" &nbsp;|&nbsp; \U0001f69a {filtre_veh}" if filtre_veh!="Tous les vehicules" else ""
+    st.markdown(f'<div style="background:white;border-radius:10px;padding:12px 18px;margin-bottom:16px;border-left:5px solid #f97316;"><strong>Semaine {semaine}</strong> &nbsp;|&nbsp; {d0} au {d4} &nbsp;|&nbsp; <strong>{nb} trajet(s)</strong>{filtre_label}</div>',unsafe_allow_html=True)
     cols=st.columns(5)
     for i,(col,d) in enumerate(zip(cols,dates_sem)):
         today_cls="col-jour-today" if d==today else ""
@@ -462,7 +482,8 @@ def onglet_calendrier(df):
 def main():
     check_auth()
     st.markdown('<div class="app-header"><div><div class="app-header-logo">Denjean</div><div class="app-header-sub-logo">Artisan du Metal</div></div><div style="width:2px;height:40px;background:#444;border-radius:1px;"></div><div><h1>\U0001f69b Planning Livraisons &amp; Tournees</h1><p>Gestion des livraisons et tournees</p></div></div>',unsafe_allow_html=True)
-    init_livraisons(); df=load_livraisons()
+    with st.spinner("Chargement des donnees..."):
+        init_livraisons(); df=load_livraisons()
     tab1,tab2,tab3=st.tabs(["\U0001f3e0 Tableau de bord","\u2795 Ajouter un trajet","\U0001f4c5 Calendrier"])
     with tab1: onglet_dashboard(df)
     with tab2: onglet_ajouter()
