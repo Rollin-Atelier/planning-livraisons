@@ -92,11 +92,9 @@ def init_livraisons():
         ws = sh.worksheet("livraisons")
         try:
             first_row = ws.row_values(1)
-            if first_row and first_row[0] == "id_trajet":
-                pass
-            elif not first_row:
+            if not first_row:
                 ws.append_row(HEADER_LIVRAISONS)
-            else:
+            elif first_row[0] != "id_trajet":
                 ws.clear(); ws.append_row(HEADER_LIVRAISONS)
         except Exception:
             pass
@@ -225,15 +223,15 @@ def trajet_avec_menu(row, ws, all_rows, key_prefix=""):
                             do_update_full(ws,ri,new_stat,new_date,new_hd,new_hf,new_cam)
                             load_livraisons.clear(); st.success("Mis a jour !"); st.rerun(); break
             st.markdown("---")
-            confirm_key = f"confirm_del_{key_prefix}_{id_t}"
-            if not st.session_state.get(confirm_key, False):
+            confirm_key=f"confirm_del_{key_prefix}_{id_t}"
+            if not st.session_state.get(confirm_key,False):
                 if st.button("\U0001f5d1 Supprimer",key=f"pop_del_{key_prefix}_{id_t}",use_container_width=True):
-                    st.session_state[confirm_key] = True; st.rerun()
+                    st.session_state[confirm_key]=True; st.rerun()
             else:
                 st.warning("Confirmer la suppression ?")
-                col_oui,col_non = st.columns(2)
+                col_oui,col_non=st.columns(2)
                 with col_oui:
-                    if st.button("Oui, supprimer",key=f"pop_del_oui_{key_prefix}_{id_t}",use_container_width=True,type="primary"):
+                    if st.button("Oui",key=f"pop_del_oui_{key_prefix}_{id_t}",use_container_width=True,type="primary"):
                         if ws:
                             for ri,r in enumerate(all_rows):
                                 if str(r.get("id_trajet",""))==id_t:
@@ -241,19 +239,19 @@ def trajet_avec_menu(row, ws, all_rows, key_prefix=""):
                                     st.session_state.pop(confirm_key,None)
                                     st.success("Supprime !"); st.rerun(); break
                 with col_non:
-                    if st.button("Annuler",key=f"pop_del_non_{key_prefix}_{id_t}",use_container_width=True):
+                    if st.button("Non",key=f"pop_del_non_{key_prefix}_{id_t}",use_container_width=True):
                         st.session_state.pop(confirm_key,None); st.rerun()
 
 def form_planif_rapide(affaire, ouvrage, id_tache, key_suffix=""):
     semaines=get_semaines(); sem_def=sem_courante()
     idx_s=semaines.index(sem_def) if sem_def in semaines else 2
     heures=heures_list(); idx_8=heures.index("08:00") if "08:00" in heures else 0; idx_10=heures.index("10:00") if "10:00" in heures else 4
+    c1,c2=st.columns(2)
+    with c1: semaine=st.selectbox("Semaine",semaines,index=idx_s,key=f"sem_{key_suffix}")
+    with c2: camion=st.selectbox("Vehicule",CAMIONS,key=f"cam_{key_suffix}")
+    dates_sem=semaine_to_dates(semaine); opts_dates=[d.strftime("%A %d/%m/%Y").capitalize() for d in dates_sem]
     with st.form(key=f"form_rapide_{key_suffix}",clear_on_submit=True):
         st.markdown(f"### \U0001f3d7\ufe0f {affaire}"); st.markdown(f"**Ouvrage :** {ouvrage}"); st.markdown("---")
-        c1,c2=st.columns(2)
-        with c1: semaine=st.selectbox("Semaine",semaines,index=idx_s,key=f"sem_{key_suffix}")
-        with c2: camion=st.selectbox("Vehicule",CAMIONS,key=f"cam_{key_suffix}")
-        dates_sem=semaine_to_dates(semaine); opts_dates=[d.strftime("%A %d/%m/%Y").capitalize() for d in dates_sem]
         c3,c4=st.columns(2)
         with c3: date_str=st.selectbox("Jour",opts_dates,key=f"day_{key_suffix}")
         with c4: destination=st.selectbox("Destination",DESTINATIONS,key=f"dest_{key_suffix}")
@@ -299,7 +297,8 @@ def check_auth():
                 else: st.error("Mot de passe incorrect")
         st.stop()
 
-def onglet_dashboard(df):
+def onglet_dashboard():
+    df=load_livraisons()
     today=date.today(); sem=sem_courante()
     df_sem=df[df["semaine"]==sem] if not df.empty and "semaine" in df.columns else pd.DataFrame()
     if not df.empty:
@@ -359,7 +358,7 @@ def onglet_dashboard(df):
     if not df.empty and "type_trajet" in df.columns:
         counts=df["type_trajet"].value_counts(); cols=st.columns(max(len(counts),1))
         for i,(typ,cnt) in enumerate(counts.items()):
-            with cols[i]: st.markdown(f'<div class="stat-card"><div style="font-size:1.5rem;">{TYPE_EMOJI.get(typ,"\u26ab")}</div><div class="stat-num" style="font-size:1.5rem;">{cnt}</div><div class="stat-label">{typ}</div></div>',unsafe_allow_html=True)
+            with cols[i]: st.markdown(f'<div class="stat-card"><div style="font-size:1.5rem;">{TYPE_EMOJI.get(typ,chr(9899))}</div><div class="stat-num" style="font-size:1.5rem;">{cnt}</div><div class="stat-label">{typ}</div></div>',unsafe_allow_html=True)
     st.markdown("---")
     with st.expander(f"\U0001f4c2 Archives ({len(df_archive) if not df_archive.empty else 0})"):
         if df_archive.empty: st.info("Aucun trajet archive.")
@@ -382,7 +381,7 @@ def onglet_dashboard(df):
                         if st.button("\U0001f5d1 Supprimer",key=f"arch_del_{id_t}",use_container_width=True):
                             if ws:
                                 for ri,r in enumerate(all_rows):
-                                    if str(r.get("id_trajet",""))==id_t: do_delete_trajet(ws,ri); st.success("Supprime !"); st.rerun(); break
+                                    if str(r.get("id_trajet",""))==id_t: do_delete_trajet(ws,ri); load_livraisons.clear(); st.success("Supprime !"); st.rerun(); break
 
 def onglet_ajouter():
     st.markdown("### \u2795 Nouveau trajet")
@@ -403,8 +402,8 @@ def onglet_ajouter():
                 rt=taches_df.iloc[opts_t.index(choix)]
                 affaire=str(rt.get("affaire","")); ouvrage=str(rt.get("ouvrage",rt.get("designation",""))); id_tache=str(rt.get("id",rt.get("id_tache","")))
             else: st.warning("Aucun ouvrage marque Termine dans le planning atelier.")
+    dates_sem=semaine_to_dates(semaine); opts_dates=[d.strftime("%A %d/%m/%Y").capitalize() for d in dates_sem]
     with st.form("form_trajet",clear_on_submit=True):
-        dates_sem=semaine_to_dates(semaine); opts_dates=[d.strftime("%A %d/%m/%Y").capitalize() for d in dates_sem]
         c3,c4=st.columns(2)
         with c3: date_str=st.selectbox("Jour *",opts_dates) if opts_dates else st.text_input("Date")
         with c4: camion=st.selectbox("Vehicule *",CAMIONS)
@@ -444,21 +443,22 @@ def onglet_ajouter():
         try: save_trajet(row); load_livraisons.clear(); st.success(f"Trajet enregistre : {description}"); st.balloons(); st.rerun()
         except Exception as e: st.error(f"Erreur : {e}")
 
-def onglet_calendrier(df):
+def onglet_calendrier():
+    df=load_livraisons()
     st.markdown("### \U0001f4c5 Calendrier de la semaine")
     semaines=get_semaines(); sem_def=sem_courante(); idx_def=semaines.index(sem_def) if sem_def in semaines else 2
     col_sel,col_veh,col_btn=st.columns([3,2,1])
-    with col_sel: semaine=st.selectbox("Semaine",semaines,index=idx_def,label_visibility="collapsed")
+    with col_sel: semaine=st.selectbox("Semaine",semaines,index=idx_def,label_visibility="collapsed",key="cal_semaine")
     with col_veh:
-        options_veh=["Tous les vehicules"]+CAMIONS
-        filtre_veh=st.selectbox("Vehicule",options_veh,label_visibility="collapsed",key="cal_filtre_veh")
+        opts_veh=["Tous les vehicules"]+CAMIONS
+        filtre_veh=st.selectbox("Vehicule",opts_veh,label_visibility="collapsed",key="cal_filtre_veh")
     with col_btn:
         if st.button("\U0001f5a8\ufe0f Imprimer",use_container_width=True): components.html("<script>window.parent.print();</script>",height=0)
     dates_sem=semaine_to_dates(semaine)
     if not dates_sem: st.error("Semaine invalide."); return
     today=date.today()
     df_sem=df[df["semaine"]==semaine].copy() if not df.empty and "semaine" in df.columns else pd.DataFrame()
-    if filtre_veh != "Tous les vehicules" and not df_sem.empty and "camion" in df_sem.columns:
+    if filtre_veh!="Tous les vehicules" and not df_sem.empty and "camion" in df_sem.columns:
         df_sem=df_sem[df_sem["camion"]==filtre_veh].copy()
     nb=len(df_sem); d0=dates_sem[0].strftime("%d/%m/%Y"); d4=dates_sem[4].strftime("%d/%m/%Y")
     filtre_label=f" &nbsp;|&nbsp; \U0001f69a {filtre_veh}" if filtre_veh!="Tous les vehicules" else ""
@@ -482,12 +482,11 @@ def onglet_calendrier(df):
 def main():
     check_auth()
     st.markdown('<div class="app-header"><div><div class="app-header-logo">Denjean</div><div class="app-header-sub-logo">Artisan du Metal</div></div><div style="width:2px;height:40px;background:#444;border-radius:1px;"></div><div><h1>\U0001f69b Planning Livraisons &amp; Tournees</h1><p>Gestion des livraisons et tournees</p></div></div>',unsafe_allow_html=True)
-    with st.spinner("Chargement des donnees..."):
-        init_livraisons(); df=load_livraisons()
+    init_livraisons()
     tab1,tab2,tab3=st.tabs(["\U0001f3e0 Tableau de bord","\u2795 Ajouter un trajet","\U0001f4c5 Calendrier"])
-    with tab1: onglet_dashboard(df)
+    with tab1: onglet_dashboard()
     with tab2: onglet_ajouter()
-    with tab3: onglet_calendrier(df)
+    with tab3: onglet_calendrier()
 
 if __name__ == "__main__":
     main()
