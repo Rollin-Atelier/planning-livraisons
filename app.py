@@ -612,15 +612,46 @@ def onglet_dashboard(df):
 def onglet_ajouter():
     st.markdown("### \u2795 Nouveau trajet")
 
+    # Le radio source ouvrage doit etre HORS du form pour reagir dynamiquement
+    c1p, c2p = st.columns(2)
+    with c1p:
+        type_trajet_pre = st.selectbox("Type de trajet *", TYPES_TRAJET, key="pre_type")
+
+    affaire = ouvrage = id_tache = ""
+    taches_df = pd.DataFrame()
+
+    if type_trajet_pre == "Livraison ouvrage":
+        mode_saisie = st.radio(
+            "Source de l ouvrage",
+            ["Depuis le planning atelier", "Saisie manuelle"],
+            horizontal=True,
+            key="mode_saisie_ouvrage"
+        )
+        if mode_saisie == "Depuis le planning atelier":
+            taches_df = load_taches_terminees()
+            if not taches_df.empty:
+                opts_t = taches_df.apply(
+                    lambda r: f"{r.get('chantier', r.get('affaire',''))} - {r.get('ouvrage', r.get('designation',''))}",
+                    axis=1
+                ).tolist()
+                choix    = st.selectbox("Ouvrage termine *", opts_t, key="pre_ouvrage")
+                idx_t    = opts_t.index(choix)
+                rt       = taches_df.iloc[idx_t]
+                affaire  = str(rt.get("chantier", rt.get("affaire","")))
+                ouvrage  = str(rt.get("ouvrage", rt.get("designation","")))
+                id_tache = str(rt.get("id", rt.get("id_tache","")))
+            else:
+                st.warning("Aucun ouvrage marque Termine dans le planning atelier.")
+        else:
+            ca, co = st.columns(2)
+            affaire  = ca.text_input("Chantier *", key="pre_chantier")
+            ouvrage  = co.text_input("Ouvrage / Designation *", key="pre_ouvrage_man")
+
     with st.form("form_trajet", clear_on_submit=True):
-        c1, c2 = st.columns(2)
-        with c1:
-            type_trajet = st.selectbox("Type de trajet *", TYPES_TRAJET)
-        with c2:
-            semaines = get_semaines()
-            sem_def  = sem_courante()
-            idx_s    = semaines.index(sem_def) if sem_def in semaines else 2
-            semaine  = st.selectbox("Semaine *", semaines, index=idx_s)
+        semaines = get_semaines()
+        sem_def  = sem_courante()
+        idx_s    = semaines.index(sem_def) if sem_def in semaines else 2
+        semaine  = st.selectbox("Semaine *", semaines, index=idx_s)
 
         dates_sem  = semaine_to_dates(semaine)
         opts_dates = [d.strftime("%A %d/%m/%Y").capitalize() for d in dates_sem]
@@ -640,36 +671,6 @@ def onglet_ajouter():
         with c6:
             heure_fin = st.selectbox("Heure fin", heures, index=idx_10)
 
-        affaire = ouvrage = id_tache = ""
-        if type_trajet == "Livraison ouvrage":
-            taches_df = load_taches_terminees()
-            mode_saisie = st.radio(
-                "Source de l ouvrage",
-                ["Depuis le planning atelier", "Saisie manuelle"],
-                horizontal=True
-            )
-            if mode_saisie == "Depuis le planning atelier":
-                if not taches_df.empty:
-                    opts_t = taches_df.apply(
-                        lambda r: f"{r.get('chantier', r.get('affaire',''))} - {r.get('ouvrage', r.get('designation',''))}",
-                        axis=1
-                    ).tolist()
-                    choix    = st.selectbox("Ouvrage termine *", opts_t)
-                    idx_t    = opts_t.index(choix)
-                    rt       = taches_df.iloc[idx_t]
-                    affaire  = str(rt.get("chantier", rt.get("affaire","")))
-                    ouvrage  = str(rt.get("ouvrage", rt.get("designation","")))
-                    id_tache = str(rt.get("id", rt.get("id_tache","")))
-                else:
-                    st.warning("Aucun ouvrage marque Termine dans le planning atelier.")
-                    affaire  = st.text_input("Chantier")
-                    ouvrage  = st.text_input("Ouvrage")
-            else:
-                ca, co = st.columns(2)
-                affaire  = ca.text_input("Chantier *")
-                ouvrage  = co.text_input("Ouvrage / Designation *")
-                id_tache = ""
-
         description = st.text_input("Description / Objet du trajet *")
         adresse     = st.text_input("Adresse")
 
@@ -680,7 +681,7 @@ def onglet_ajouter():
             contact_tel = st.text_input("Telephone")
 
         destination = nom_chantier = ""
-        if type_trajet in ["Livraison ouvrage", "Livraison autre"]:
+        if type_trajet_pre in ["Livraison ouvrage", "Livraison autre"]:
             c9, c10 = st.columns(2)
             with c9:
                 destination = st.selectbox("Destination", DESTINATIONS)
@@ -696,6 +697,13 @@ def onglet_ajouter():
         if not description:
             st.error("La description est obligatoire.")
             return
+        # Recuperer affaire/ouvrage depuis session_state si saisie manuelle
+        if type_trajet_pre == "Livraison ouvrage":
+            mode = st.session_state.get("mode_saisie_ouvrage", "Depuis le planning atelier")
+            if mode == "Saisie manuelle":
+                affaire  = st.session_state.get("pre_chantier", affaire)
+                ouvrage  = st.session_state.get("pre_ouvrage_man", ouvrage)
+                id_tache = ""
         date_liv = ""
         if dates_sem and date_str:
             try:
@@ -704,7 +712,7 @@ def onglet_ajouter():
             except Exception:
                 date_liv = ""
         row = [
-            str(uuid.uuid4())[:8], type_trajet, id_tache, affaire, ouvrage,
+            str(uuid.uuid4())[:8], type_trajet_pre, id_tache, affaire, ouvrage,
             destination, nom_chantier, description, adresse,
             contact_nom, contact_tel, date_liv, semaine,
             heure_debut, heure_fin, camion, "Planifie", commentaire
