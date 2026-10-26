@@ -643,21 +643,32 @@ def onglet_ajouter():
         affaire = ouvrage = id_tache = ""
         if type_trajet == "Livraison ouvrage":
             taches_df = load_taches_terminees()
-            if not taches_df.empty:
-                opts_t = taches_df.apply(
-                    lambda r: f"{r.get('chantier', r.get('affaire',''))} - {r.get('ouvrage', r.get('designation',''))}",
-                    axis=1
-                ).tolist()
-                choix    = st.selectbox("Ouvrage termine *", opts_t)
-                idx_t    = opts_t.index(choix)
-                rt       = taches_df.iloc[idx_t]
-                affaire  = str(rt.get("chantier", rt.get("affaire","")))
-                ouvrage  = str(rt.get("ouvrage", rt.get("designation","")))
-                id_tache = str(rt.get("id", rt.get("id_tache","")))
+            mode_saisie = st.radio(
+                "Source de l ouvrage",
+                ["Depuis le planning atelier", "Saisie manuelle"],
+                horizontal=True
+            )
+            if mode_saisie == "Depuis le planning atelier":
+                if not taches_df.empty:
+                    opts_t = taches_df.apply(
+                        lambda r: f"{r.get('chantier', r.get('affaire',''))} - {r.get('ouvrage', r.get('designation',''))}",
+                        axis=1
+                    ).tolist()
+                    choix    = st.selectbox("Ouvrage termine *", opts_t)
+                    idx_t    = opts_t.index(choix)
+                    rt       = taches_df.iloc[idx_t]
+                    affaire  = str(rt.get("chantier", rt.get("affaire","")))
+                    ouvrage  = str(rt.get("ouvrage", rt.get("designation","")))
+                    id_tache = str(rt.get("id", rt.get("id_tache","")))
+                else:
+                    st.warning("Aucun ouvrage marque Termine dans le planning atelier.")
+                    affaire  = st.text_input("Chantier")
+                    ouvrage  = st.text_input("Ouvrage")
             else:
-                st.warning("Aucun ouvrage marque Termine dans le planning atelier.")
-                affaire = st.text_input("Chantier")
-                ouvrage = st.text_input("Ouvrage")
+                ca, co = st.columns(2)
+                affaire  = ca.text_input("Chantier *")
+                ouvrage  = co.text_input("Ouvrage / Designation *")
+                id_tache = ""
 
         description = st.text_input("Description / Objet du trajet *")
         adresse     = st.text_input("Adresse")
@@ -795,9 +806,9 @@ def onglet_calendrier(df):
 
 def main():
     check_auth()
-    st.markdown("""<div class="app-header">
-        <h1>\U0001f69b Planning Livraisons & Tournees</h1>
-        <p>Rollin Metallerie \u2014 Gestion des livraisons et tournees</p>
+    st.markdown("""<div class="app-header" style="background:linear-gradient(135deg,#1c1c1c 0%,#2d2d2d 60%,#3a3a3a 100%);border-left:5px solid #f97316;border-radius:12px;padding:18px 28px;margin-bottom:20px;">
+        <h1 style="margin:0;font-size:1.35rem;font-weight:800;color:white;">&#x1F69B; Planning Livraisons & Tournees</h1>
+        <p style="margin:4px 0 0 0;font-size:0.82rem;color:#aaa;">Denjean &mdash; Artisan du Metal &mdash; Gestion des livraisons et tournees</p>
     </div>""", unsafe_allow_html=True)
 
     init_livraisons()
