@@ -144,8 +144,10 @@ HEADER_LIVRAISONS = [
 
 @st.cache_resource
 def get_client():
-    creds_dict = dict(st.secrets["GOOGLE_CREDENTIALS"])
-    creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+    creds = Credentials.from_service_account_info(
+        dict(st.secrets["gcp_service_account"]),
+        scopes=SCOPES
+    )
     return gspread.authorize(creds)
 
 def open_sheet():
