@@ -4,7 +4,9 @@ from google.oauth2.service_account import Credentials
 import pandas as pd
 from datetime import datetime, timedelta, date
 import uuid
-import streamlit.components.v1 as components
+import io
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseUpload
 
 st.set_page_config(page_title="Planning Livraisons", page_icon="\U0001f69b", layout="wide", initial_sidebar_state="collapsed")
 
@@ -41,7 +43,9 @@ st.markdown("""
 .badge-ta { background: #ffedd5; color: #ea580c; }
 .badge-td { background: #f3f4f6; color: #6b7280; }
 .badge-cam { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 0.72rem; font-weight: 700; margin-right: 4px; color: white; }
+.badge-finition { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 0.72rem; font-weight: 600; background: #fef3c7; color: #b45309; margin-right: 6px; }
 .ouvrage-card { background: white; border-radius: 10px; padding: 12px 16px; margin-bottom: 6px; border-left: 5px solid #16a34a; box-shadow: 0 1px 4px rgba(0,0,0,0.07); }
+.ouvrage-card-finition { background: #fffbeb; border-radius: 10px; padding: 12px 16px; margin-bottom: 6px; border-left: 5px solid #f59e0b; box-shadow: 0 1px 4px rgba(0,0,0,0.07); }
 .ouvrage-label { font-weight: 600; font-size: 0.9rem; color: #1a2340; }
 .ouvrage-sub { font-size: 0.78rem; color: #888; margin-top: 2px; }
 .col-jour { background: white; border-radius: 10px; padding: 10px; min-height: 120px; box-shadow: 0 1px 4px rgba(0,0,0,0.07); margin-bottom: 8px; }
@@ -50,6 +54,7 @@ st.markdown("""
 .day-num { font-size: 1.6rem; font-weight: 700; display: block; }
 .day-vide { text-align:center; color:#ccc; font-size:0.8rem; padding:16px 0; }
 .bandeau-jour { background: #1c1c1c; border-left: 4px solid #f97316; color: white; padding: 10px 16px; border-radius: 8px; margin: 12px 0 8px 0; font-weight: 600; }
+.bandeau-finition { background: #fffbeb; border-left: 4px solid #f59e0b; color: #92400e; padding: 10px 16px; border-radius: 8px; margin: 12px 0 8px 0; font-weight: 600; }
 .archive-card { background: #f9fafb; border-radius: 10px; padding: 10px 14px; margin-bottom: 4px; border-left: 5px solid #9ca3af; box-shadow: 0 1px 3px rgba(0,0,0,0.05); opacity: 0.85; }
 .legende-cam { display:flex; gap:10px; flex-wrap:wrap; margin:8px 0 16px 0; }
 .legende-item { display:flex; align-items:center; gap:6px; font-size:0.8rem; font-weight:600; }
@@ -61,6 +66,7 @@ st.markdown("""
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets","https://www.googleapis.com/auth/drive"]
 SHEET_URL    = "https://docs.google.com/spreadsheets/d/1KbS5fA33r6o1isdXdT_dWZMDIgtbAG17t0TKa9bdDpw"
 MOT_DE_PASSE = "atelier2026"
+DRIVE_FOLDER_NAME = "Bons de livraison"
 TYPES_TRAJET  = ["Livraison ouvrage","Enlevement / Collecte","Livraison autre","Trajet divers"]
 DESTINATIONS  = ["Peinture","Galvanisation","Chantier","Autre"]
 LIEUX_DEPART  = ["Atelier","Peinture","Galvanisation","Chantier","Autre"]
@@ -68,8 +74,8 @@ LIEUX_ARRIVEE = ["Atelier","Peinture","Galvanisation","Chantier","Autre"]
 CAMIONS       = ["Camion Denjean","Camion poseur","Camion Agenov","Camion autre Semi","Camion Kangoo"]
 STATUTS       = ["Planifie","Livre","Reporte"]
 JOURS_FR      = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi"]
+FINITION_COLORS = {"Peinture":"#3b82f6","Galvanisation":"#8b5cf6","Autre":"#6b7280","Aucune":"#d1d5db"}
 
-# Couleurs par camion (dark pour badge/PDF, light pour fond carte)
 CAMION_COLORS = {
     "Camion Denjean":    {"dark": "#1a2340", "light": "#e0e7ff", "hex": "#1a2340"},
     "Camion poseur":     {"dark": "#15803d", "light": "#dcfce7", "hex": "#15803d"},
@@ -94,6 +100,12 @@ def get_client():
     info["private_key"] = info["private_key"].replace("\\n","\n")
     creds = Credentials.from_service_account_info(info, scopes=SCOPES)
     return gspread.authorize(creds)
+
+@st.cache_resource
+def get_creds():
+    info = dict(st.secrets["gcp_service_account"])
+    info["private_key"] = info["private_key"].replace("\\n","\n")
+    return Credentials.from_service_account_info(info, scopes=SCOPES)
 
 @st.cache_resource
 def open_sheet():
@@ -136,16 +148,92 @@ def load_livraisons():
         if col not in df.columns: df[col] = ""
     return df
 
-def load_taches_terminees():
+@st.cache_data(ttl=30)
+def load_taches_atelier():
+    """Charge toutes les taches depuis le sheet atelier."""
     ws = get_ws("taches")
     if ws is None: return pd.DataFrame()
     data = ws.get_all_records()
     if not data: return pd.DataFrame()
     df = pd.DataFrame(data)
     df.columns = [c.lower().strip() for c in df.columns]
+    return df
+
+def load_taches_terminees():
+    df = load_taches_atelier()
+    if df.empty: return pd.DataFrame()
     col_s = next((c for c in df.columns if "statut" in c), None)
     if col_s is None: return pd.DataFrame()
     return df[df[col_s].str.strip().str.lower() == "termine"].copy()
+
+def load_taches_finition_recue():
+    """Taches avec statut 'Finition recue' = pretes a livrer."""
+    df = load_taches_atelier()
+    if df.empty: return pd.DataFrame()
+    col_s = next((c for c in df.columns if "statut" in c), None)
+    if col_s is None: return pd.DataFrame()
+    mask = df[col_s].str.strip().str.lower().isin(["finition recue", "finition reçue"])
+    return df[mask].copy()
+
+def get_or_create_drive_folder():
+    """Retourne l'id du dossier Drive 'Bons de livraison', le cree si besoin."""
+    try:
+        creds = get_creds()
+        service = build("drive", "v3", credentials=creds)
+        results = service.files().list(
+            q=f"name='{DRIVE_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false",
+            fields="files(id, name)"
+        ).execute()
+        files = results.get("files", [])
+        if files:
+            return files[0]["id"]
+        folder = service.files().create(
+            body={"name": DRIVE_FOLDER_NAME, "mimeType": "application/vnd.google-apps.folder"},
+            fields="id"
+        ).execute()
+        return folder["id"]
+    except Exception as e:
+        st.error(f"Erreur Drive : {e}")
+        return None
+
+def upload_to_drive(file_bytes, filename, mime_type="application/pdf"):
+    """Upload un fichier sur Drive et retourne son URL publique."""
+    try:
+        creds = get_creds()
+        service = build("drive", "v3", credentials=creds)
+        folder_id = get_or_create_drive_folder()
+        if not folder_id: return None
+        media = MediaIoBaseUpload(io.BytesIO(file_bytes), mimetype=mime_type, resumable=False)
+        file_meta = {"name": filename, "parents": [folder_id]}
+        uploaded = service.files().create(body=file_meta, media_body=media, fields="id").execute()
+        file_id = uploaded.get("id")
+        service.permissions().create(fileId=file_id, body={"type":"anyone","role":"reader"}).execute()
+        return f"https://drive.google.com/file/d/{file_id}/view"
+    except Exception as e:
+        st.error(f"Erreur upload Drive : {e}")
+        return None
+
+def update_bon_livraison_tache(id_tache, url):
+    """Met a jour la colonne bon_livraison_url dans le sheet taches."""
+    try:
+        ws = get_ws("taches")
+        if not ws: return
+        records = ws.get_all_records()
+        headers = ws.row_values(1)
+        col_id = next((i+1 for i,h in enumerate(headers) if h.lower() in ["id","id_tache"]), None)
+        col_url = next((i+1 for i,h in enumerate(headers) if "bon_livraison" in h.lower()), None)
+        if not col_url:
+            ws.update_cell(1, len(headers)+1, "bon_livraison_url")
+            col_url = len(headers)+1
+        if col_id:
+            for i, r in enumerate(records):
+                rid = str(list(r.values())[col_id-1])
+                if rid == str(id_tache):
+                    ws.update_cell(i+2, col_url, url)
+                    load_taches_atelier.clear()
+                    return
+    except Exception as e:
+        st.warning(f"Impossible de sauvegarder le lien BL dans atelier : {e}")
 
 def save_trajet(row_data):
     ws = get_ws("livraisons") or init_livraisons()
@@ -200,6 +288,11 @@ def cam_badge_html(cam):
     c = cam_color(cam, "dark")
     return f'<span class="badge-cam" style="background:{c};">{cam}</span>'
 
+def finition_badge_html(finition):
+    if not finition or finition == "Aucune": return ""
+    color = FINITION_COLORS.get(finition, "#6b7280")
+    return f'<span class="badge-finition" style="background:{color}22;color:{color};">\U0001f3a8 {finition}</span>'
+
 def card_html(row, archive=False):
     typ=str(row.get("type_trajet","")); desc=str(row.get("description","") or row.get("ouvrage","") or "")
     hd=str(row.get("heure_debut","")); hf=str(row.get("heure_fin",""))
@@ -210,7 +303,6 @@ def card_html(row, archive=False):
     lieu_dep_label = l_dep_a if l_dep=="Autre" and l_dep_a else l_dep
     lieu_arr_label = l_arr_a if l_arr=="Autre" and l_arr_a else l_arr
     cam_dark  = cam_color(cam, "dark")
-    cam_light = cam_color(cam, "light")
     border_style = f"border-left-color:{cam_dark};" if not archive else ""
     cc = "archive-card" if archive else f"card {TYPE_CARD.get(typ,'card-divers')}"
     bc = TYPE_BADGE.get(typ,"badge-td")
@@ -223,11 +315,8 @@ def card_html(row, archive=False):
     if hd and hf: parts.append(f"\u23f1 {hd} - {hf}")
     if adr: parts.append(f"\U0001f4cc {adr}")
     if cnt: parts.append(f"\U0001f464 {cnt}")
-    cam_html = cam_badge_html(cam) if cam and not archive else (f"\U0001f69a {cam}" if cam else "")
-    if cam and not archive:
-        parts.append(f"\U0001f69a {cam_badge_html(cam)}")
-    elif cam:
-        parts.append(f"\U0001f69a {cam}")
+    if cam and not archive: parts.append(f"\U0001f69a {cam_badge_html(cam)}")
+    elif cam: parts.append(f"\U0001f69a {cam}")
     return f'<div class="{cc}" style="{border_style}"><div class="card-titre"><span class="badge {bc}">{typ}</span><span class="badge {sc}">{stat}</span> {desc}</div><div class="card-detail">{"<br>".join(parts)}</div></div>'
 
 def legende_camions_html():
@@ -235,6 +324,26 @@ def legende_camions_html():
     for cam, cols in CAMION_COLORS.items():
         items += f'<div class="legende-item"><span class="legende-dot" style="background:{cols["dark"]};"></span>{cam}</div>'
     return f'<div class="legende-cam">{items}</div>'
+
+def widget_bon_livraison(id_tache, ouvrage, bon_url_existant="", key_prefix=""):
+    """Widget upload bon de livraison -> Drive."""
+    if bon_url_existant and bon_url_existant.startswith("http"):
+        st.markdown(f'<a href="{bon_url_existant}" target="_blank" style="display:inline-block;padding:4px 12px;background:#dcfce7;color:#16a34a;border-radius:8px;font-size:0.8rem;font-weight:600;text-decoration:none;">\U0001f4ce Voir le bon de livraison</a>', unsafe_allow_html=True)
+        uploaded = st.file_uploader("Remplacer le bon", type=["pdf","png","jpg","jpeg"], key=f"bl_up_{key_prefix}_{id_tache}", label_visibility="collapsed")
+    else:
+        uploaded = st.file_uploader("\U0001f4ce Joindre un bon de livraison", type=["pdf","png","jpg","jpeg"], key=f"bl_up_{key_prefix}_{id_tache}")
+    if uploaded is not None:
+        if st.button("Envoyer sur Drive", key=f"bl_send_{key_prefix}_{id_tache}", type="primary"):
+            with st.spinner("Upload en cours..."):
+                ext = uploaded.name.split(".")[-1]
+                fname = f"BL_{ouvrage}_{id_tache}.{ext}".replace(" ","_")
+                mime = "application/pdf" if ext=="pdf" else f"image/{ext}"
+                url = upload_to_drive(uploaded.read(), fname, mime)
+                if url:
+                    update_bon_livraison_tache(id_tache, url)
+                    st.success("Bon de livraison enregistre sur Drive !")
+                    st.markdown(f'<a href="{url}" target="_blank">\U0001f517 Ouvrir le fichier</a>', unsafe_allow_html=True)
+                    st.rerun()
 
 def trajet_avec_menu(row, ws, all_rows, key_prefix=""):
     id_t=str(row.get("id_trajet","")); stat_actuel=str(row.get("statut","Planifie"))
@@ -270,12 +379,16 @@ def trajet_avec_menu(row, ws, all_rows, key_prefix=""):
                         if str(r.get("id_trajet",""))==id_t:
                             do_delete_trajet(ws,ri); st.success("Supprime !"); st.rerun(); break
 
-def form_planif_rapide(affaire, ouvrage, id_tache, key_suffix=""):
+def form_planif_rapide(affaire, ouvrage, id_tache, finition="", key_suffix=""):
     semaines=get_semaines(); sem_def=sem_courante()
     idx_s=semaines.index(sem_def) if sem_def in semaines else 2
     heures=heures_list(); idx_8=heures.index("08:00") if "08:00" in heures else 0; idx_10=heures.index("10:00") if "10:00" in heures else 4
     with st.form(key=f"form_rapide_{key_suffix}",clear_on_submit=True):
-        st.markdown(f"### \U0001f3d7\ufe0f {affaire}"); st.markdown(f"**Ouvrage :** {ouvrage}"); st.markdown("---")
+        st.markdown(f"### \U0001f3d7\ufe0f {affaire}")
+        st.markdown(f"**Ouvrage :** {ouvrage}")
+        if finition and finition != "Aucune":
+            st.markdown(f"**Finition :** {finition_badge_html(finition)}", unsafe_allow_html=True)
+        st.markdown("---")
         c1,c2=st.columns(2)
         with c1: semaine=st.selectbox("Semaine",semaines,index=idx_s,key=f"sem_{key_suffix}")
         with c2: camion=st.selectbox("Vehicule",CAMIONS,key=f"cam_{key_suffix}")
@@ -316,226 +429,89 @@ def generate_day_pdf(date_str, trajets):
                                     Table, TableStyle, HRFlowable, KeepTogether)
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
-    import io, datetime as dt2
-
-    FONT_N = "Helvetica"
-    FONT_B = "Helvetica-Bold"
-
+    import io as _io, datetime as dt2
+    FONT_N = "Helvetica"; FONT_B = "Helvetica-Bold"
     try:    d = dt2.date.fromisoformat(date_str)
     except: d = dt2.date.today()
-
     JOURS_FR2 = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"]
-    MOIS_FR  = {1:"janvier",2:"fevrier",3:"mars",4:"avril",5:"mai",6:"juin",
-                7:"juillet",8:"aout",9:"septembre",10:"octobre",11:"novembre",12:"decembre"}
-    jour_label = f"{JOURS_FR2[d.weekday()]} {d.day} {MOIS_FR[d.month]} {d.year}"
-
-    ORANGE = colors.HexColor("#f97316")
-    LIGHT  = colors.HexColor("#f8fafc")
-    BORDER = colors.HexColor("#e2e8f0")
-    WHITE  = colors.white
-
-    # Couleurs camions dans PDF
-    PDF_CAM_COLORS = {
-        "Camion Denjean":    ("#1a2340", "#e0e7ff"),
-        "Camion poseur":     ("#15803d", "#dcfce7"),
-        "Camion Agenov":     ("#b45309", "#fef3c7"),
-        "Camion autre Semi": ("#7c3aed", "#ede9fe"),
-        "Camion Kangoo":     ("#dc2626", "#fee2e2"),
-    }
-    PDF_CAM_DEFAULT = ("#6b7280", "#f3f4f6")
-
-    TYPE_COLORS = {
-        "Livraison ouvrage":     colors.HexColor("#1e40af"),
-        "Enlevement / Collecte": colors.HexColor("#6d28d9"),
-        "Livraison autre":       colors.HexColor("#ea580c"),
-        "Trajet divers":         colors.HexColor("#475569"),
-    }
-    TYPE_LIGHT = {
-        "Livraison ouvrage":     colors.HexColor("#dbeafe"),
-        "Enlevement / Collecte": colors.HexColor("#ede9fe"),
-        "Livraison autre":       colors.HexColor("#ffedd5"),
-        "Trajet divers":         colors.HexColor("#f1f5f9"),
-    }
-    STATUT_COLORS = {
-        "Planifie": ("#1d4ed8", "#dbeafe"),
-        "Livre":    ("#15803d", "#dcfce7"),
-        "Reporte":  ("#dc2626", "#fee2e2"),
-    }
-    TYPE_LABEL = {
-        "Livraison ouvrage":     "LIVRAISON",
-        "Enlevement / Collecte": "ENLEVEMENT",
-        "Livraison autre":       "LIVRAISON",
-        "Trajet divers":         "TRAJET",
-    }
-
+    MOIS_FR2  = {1:"janvier",2:"fevrier",3:"mars",4:"avril",5:"mai",6:"juin",7:"juillet",8:"aout",9:"septembre",10:"octobre",11:"novembre",12:"decembre"}
+    jour_label = f"{JOURS_FR2[d.weekday()]} {d.day} {MOIS_FR2[d.month]} {d.year}"
+    ORANGE = colors.HexColor("#f97316"); LIGHT = colors.HexColor("#f8fafc"); BORDER = colors.HexColor("#e2e8f0"); WHITE = colors.white
+    PDF_CAM_COLORS = {"Camion Denjean":("#1a2340","#e0e7ff"),"Camion poseur":("#15803d","#dcfce7"),"Camion Agenov":("#b45309","#fef3c7"),"Camion autre Semi":("#7c3aed","#ede9fe"),"Camion Kangoo":("#dc2626","#fee2e2")}
+    PDF_CAM_DEFAULT = ("#6b7280","#f3f4f6")
+    TYPE_COLORS = {"Livraison ouvrage":colors.HexColor("#1e40af"),"Enlevement / Collecte":colors.HexColor("#6d28d9"),"Livraison autre":colors.HexColor("#ea580c"),"Trajet divers":colors.HexColor("#475569")}
+    TYPE_LIGHT  = {"Livraison ouvrage":colors.HexColor("#dbeafe"),"Enlevement / Collecte":colors.HexColor("#ede9fe"),"Livraison autre":colors.HexColor("#ffedd5"),"Trajet divers":colors.HexColor("#f1f5f9")}
+    STATUT_COLORS = {"Planifie":("#1d4ed8","#dbeafe"),"Livre":("#15803d","#dcfce7"),"Reporte":("#dc2626","#fee2e2")}
+    TYPE_LABEL = {"Livraison ouvrage":"LIVRAISON","Enlevement / Collecte":"ENLEVEMENT","Livraison autre":"LIVRAISON","Trajet divers":"TRAJET"}
     def p(txt, bold=False, size=10, color="#1c1c1c", align=TA_LEFT):
         fn = FONT_B if bold else FONT_N
-        return Paragraph(str(txt), ParagraphStyle(
-            "_", fontName=fn, fontSize=size,
-            textColor=colors.HexColor(color), alignment=align, leading=size*1.4
-        ))
-
-    buf = io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4,
-                            leftMargin=1.8*cm, rightMargin=1.8*cm,
-                            topMargin=1.5*cm,  bottomMargin=1.5*cm)
+        return Paragraph(str(txt), ParagraphStyle("_", fontName=fn, fontSize=size, textColor=colors.HexColor(color), alignment=align, leading=size*1.4))
+    buf = _io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=1.8*cm, rightMargin=1.8*cm, topMargin=1.5*cm, bottomMargin=1.5*cm)
     story = []
-
-    hdr = Table([[
-        p("Denjean", bold=True, size=26, color="#f97316"),
-        Table([[p("Planning des livraisons", bold=True, size=15)],
-               [p(jour_label, bold=True, size=12, color="#f97316")]],
-              colWidths=[10*cm]),
-        p(f"Imprime le {dt2.date.today().strftime('%d/%m/%Y')}", size=8, color="#9ca3af", align=TA_RIGHT),
-    ]], colWidths=[4*cm, 10*cm, 4*cm])
-    hdr.setStyle(TableStyle([
-        ("VALIGN",       (0,0),(-1,-1), "MIDDLE"),
-        ("LINEBELOW",    (0,0),(-1,0),  3, ORANGE),
-        ("BOTTOMPADDING",(0,0),(-1,0),  10),
-    ]))
-    story.append(hdr)
-    story.append(Spacer(1, 0.4*cm))
-
-    # Legende camions dans le PDF
+    hdr = Table([[p("Denjean",bold=True,size=26,color="#f97316"),Table([[p("Planning des livraisons",bold=True,size=15)],[p(jour_label,bold=True,size=12,color="#f97316")]],colWidths=[10*cm]),p(f"Imprime le {dt2.date.today().strftime('%d/%m/%Y')}",size=8,color="#9ca3af",align=TA_RIGHT)]],colWidths=[4*cm,10*cm,4*cm])
+    hdr.setStyle(TableStyle([("VALIGN",(0,0),(-1,-1),"MIDDLE"),("LINEBELOW",(0,0),(-1,0),3,ORANGE),("BOTTOMPADDING",(0,0),(-1,0),10)]))
+    story.append(hdr); story.append(Spacer(1,0.4*cm))
     leg_data = [[]]
-    for cam_name, (cdark, clight) in PDF_CAM_COLORS.items():
-        badge = Table([[p(cam_name, bold=True, size=7, color="#ffffff")]], colWidths=[3.2*cm])
-        badge.setStyle(TableStyle([
-            ("BACKGROUND",(0,0),(-1,-1),colors.HexColor(cdark)),
-            ("TOPPADDING",(0,0),(-1,-1),3),("BOTTOMPADDING",(0,0),(-1,-1),3),
-            ("LEFTPADDING",(0,0),(-1,-1),6),("RIGHTPADDING",(0,0),(-1,-1),6),
-        ]))
+    for cam_name,(cdark,clight) in PDF_CAM_COLORS.items():
+        badge = Table([[p(cam_name,bold=True,size=7,color="#ffffff")]],colWidths=[3.2*cm])
+        badge.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,-1),colors.HexColor(cdark)),("TOPPADDING",(0,0),(-1,-1),3),("BOTTOMPADDING",(0,0),(-1,-1),3),("LEFTPADDING",(0,0),(-1,-1),6),("RIGHTPADDING",(0,0),(-1,-1),6)]))
         leg_data[0].append(badge)
-    leg_table = Table(leg_data, colWidths=[3.4*cm]*5)
+    leg_table = Table(leg_data,colWidths=[3.4*cm]*5)
     leg_table.setStyle(TableStyle([("VALIGN",(0,0),(-1,-1),"MIDDLE"),("LEFTPADDING",(0,0),(-1,-1),2)]))
-    story.append(leg_table)
-    story.append(Spacer(1, 0.4*cm))
-
+    story.append(leg_table); story.append(Spacer(1,0.4*cm))
     nb = len(trajets)
-    recap = Table([[p(f"{nb} trajet(s) planifie(s)", bold=True, size=10)]], colWidths=[18*cm])
-    recap.setStyle(TableStyle([
-        ("BACKGROUND",   (0,0),(-1,-1), LIGHT),
-        ("TOPPADDING",   (0,0),(-1,-1), 7),
-        ("BOTTOMPADDING",(0,0),(-1,-1), 7),
-        ("LEFTPADDING",  (0,0),(-1,-1), 12),
-        ("LINEBELOW",    (0,0),(-1,-1), 0.5, BORDER),
-    ]))
-    story.append(recap)
-    story.append(Spacer(1, 0.5*cm))
-
+    recap = Table([[p(f"{nb} trajet(s) planifie(s)",bold=True,size=10)]],colWidths=[18*cm])
+    recap.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,-1),LIGHT),("TOPPADDING",(0,0),(-1,-1),7),("BOTTOMPADDING",(0,0),(-1,-1),7),("LEFTPADDING",(0,0),(-1,-1),12),("LINEBELOW",(0,0),(-1,-1),0.5,BORDER)]))
+    story.append(recap); story.append(Spacer(1,0.5*cm))
     if not trajets:
-        story.append(p("Aucun trajet planifie pour cette journee.", size=12, color="#9ca3af", align=TA_CENTER))
+        story.append(p("Aucun trajet planifie pour cette journee.",size=12,color="#9ca3af",align=TA_CENTER))
     else:
         for t in trajets:
-            typ     = str(t.get("type_trajet","Trajet divers"))
-            desc    = str(t.get("description","") or t.get("ouvrage","") or "")
-            hd      = str(t.get("heure_debut",""))
-            hf      = str(t.get("heure_fin",""))
-            cam     = str(t.get("camion",""))
-            adr     = str(t.get("adresse",""))
-            cnt     = str(t.get("contact_nom",""))
-            tel     = str(t.get("contact_tel",""))
-            stat    = str(t.get("statut","Planifie"))
-            affaire = str(t.get("affaire",""))
-            ouvrage = str(t.get("ouvrage",""))
-            l_dep   = str(t.get("lieu_depart",""))
-            l_dep_a = str(t.get("lieu_depart_autre",""))
-            l_arr   = str(t.get("lieu_arrivee",""))
-            l_arr_a = str(t.get("lieu_arrivee_autre",""))
-            comm    = str(t.get("commentaire",""))
+            typ=str(t.get("type_trajet","Trajet divers")); desc=str(t.get("description","") or t.get("ouvrage","") or "")
+            hd=str(t.get("heure_debut","")); hf=str(t.get("heure_fin","")); cam=str(t.get("camion",""))
+            adr=str(t.get("adresse","")); cnt=str(t.get("contact_nom","")); tel=str(t.get("contact_tel",""))
+            stat=str(t.get("statut","Planifie")); affaire=str(t.get("affaire","")); ouvrage=str(t.get("ouvrage",""))
+            l_dep=str(t.get("lieu_depart","")); l_dep_a=str(t.get("lieu_depart_autre","")); l_arr=str(t.get("lieu_arrivee","")); l_arr_a=str(t.get("lieu_arrivee_autre",""))
+            comm=str(t.get("commentaire","")); finition=str(t.get("finition",""))
             lieu_dep = l_dep_a if l_dep=="Autre" and l_dep_a else l_dep
             lieu_arr = l_arr_a if l_arr=="Autre" and l_arr_a else l_arr
-
-            # Couleur camion pour ce trajet
-            cam_dark_hex, cam_light_hex = PDF_CAM_COLORS.get(cam, PDF_CAM_DEFAULT)
-            cam_dark_c  = colors.HexColor(cam_dark_hex)
-            cam_light_c = colors.HexColor(cam_light_hex)
-
-            tc  = TYPE_COLORS.get(typ, colors.HexColor("#475569"))
-            tlc = TYPE_LIGHT.get(typ, LIGHT)
-            sc_hex, slc_hex = STATUT_COLORS.get(stat, ("#1d4ed8","#dbeafe"))
-            typ_lbl = TYPE_LABEL.get(typ, "TRAJET")
-
-            badge_typ = Table([[p(typ_lbl, bold=True, size=8, color="#ffffff")]], colWidths=[2.6*cm])
-            badge_typ.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,-1),tc),
-                ("TOPPADDING",(0,0),(-1,-1),4),("BOTTOMPADDING",(0,0),(-1,-1),4),
-                ("LEFTPADDING",(0,0),(-1,-1),8),("RIGHTPADDING",(0,0),(-1,-1),8)]))
-
-            badge_stat = Table([[p(stat.upper(), bold=True, size=8, color=sc_hex)]], colWidths=[2.4*cm])
-            badge_stat.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,-1),colors.HexColor(slc_hex)),
-                ("TOPPADDING",(0,0),(-1,-1),4),("BOTTOMPADDING",(0,0),(-1,-1),4),
-                ("LEFTPADDING",(0,0),(-1,-1),8),("RIGHTPADDING",(0,0),(-1,-1),8)]))
-
-            # Badge camion colore
-            badge_cam = Table([[p(cam, bold=True, size=8, color="#ffffff")]], colWidths=[3.8*cm])
-            badge_cam.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,-1),cam_dark_c),
-                ("TOPPADDING",(0,0),(-1,-1),4),("BOTTOMPADDING",(0,0),(-1,-1),4),
-                ("LEFTPADDING",(0,0),(-1,-1),8),("RIGHTPADDING",(0,0),(-1,-1),8)]))
-
-            titre_row = Table([[
-                p(f"{hd}  ->  {hf}", bold=True, size=15),
-                badge_typ, badge_stat, badge_cam,
-            ]], colWidths=[4*cm, 2.8*cm, 2.6*cm, 4.1*cm])
-            titre_row.setStyle(TableStyle([
-                ("VALIGN",       (0,0),(-1,-1),"MIDDLE"),
-                ("BACKGROUND",   (0,0),(-1,-1), cam_light_c),
-                ("TOPPADDING",   (0,0),(-1,-1), 12),
-                ("BOTTOMPADDING",(0,0),(-1,-1), 12),
-                ("LEFTPADDING",  (0,0),(-1,-1), 14),
-                ("RIGHTPADDING", (0,0),(-1,-1), 8),
-            ]))
-
-            def field_row(label, value, vsize=10):
-                return [p(label, size=8, color="#9ca3af"), p(value, bold=True, size=vsize)]
-
-            body_rows = []
-            if desc:    body_rows.append(field_row("OBJET DU TRAJET", desc, 11))
+            cam_dark_hex,cam_light_hex = PDF_CAM_COLORS.get(cam,PDF_CAM_DEFAULT)
+            cam_dark_c=colors.HexColor(cam_dark_hex); cam_light_c=colors.HexColor(cam_light_hex)
+            tc=TYPE_COLORS.get(typ,colors.HexColor("#475569")); sc_hex,slc_hex=STATUT_COLORS.get(stat,("#1d4ed8","#dbeafe")); typ_lbl=TYPE_LABEL.get(typ,"TRAJET")
+            badge_typ=Table([[p(typ_lbl,bold=True,size=8,color="#ffffff")]],colWidths=[2.6*cm])
+            badge_typ.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,-1),tc),("TOPPADDING",(0,0),(-1,-1),4),("BOTTOMPADDING",(0,0),(-1,-1),4),("LEFTPADDING",(0,0),(-1,-1),8),("RIGHTPADDING",(0,0),(-1,-1),8)]))
+            badge_stat=Table([[p(stat.upper(),bold=True,size=8,color=sc_hex)]],colWidths=[2.4*cm])
+            badge_stat.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,-1),colors.HexColor(slc_hex)),("TOPPADDING",(0,0),(-1,-1),4),("BOTTOMPADDING",(0,0),(-1,-1),4),("LEFTPADDING",(0,0),(-1,-1),8),("RIGHTPADDING",(0,0),(-1,-1),8)]))
+            badge_cam=Table([[p(cam,bold=True,size=8,color="#ffffff")]],colWidths=[3.8*cm])
+            badge_cam.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,-1),cam_dark_c),("TOPPADDING",(0,0),(-1,-1),4),("BOTTOMPADDING",(0,0),(-1,-1),4),("LEFTPADDING",(0,0),(-1,-1),8),("RIGHTPADDING",(0,0),(-1,-1),8)]))
+            titre_row=Table([[p(f"{hd}  ->  {hf}",bold=True,size=15),badge_typ,badge_stat,badge_cam]],colWidths=[4*cm,2.8*cm,2.6*cm,4.1*cm])
+            titre_row.setStyle(TableStyle([("VALIGN",(0,0),(-1,-1),"MIDDLE"),("BACKGROUND",(0,0),(-1,-1),cam_light_c),("TOPPADDING",(0,0),(-1,-1),12),("BOTTOMPADDING",(0,0),(-1,-1),12),("LEFTPADDING",(0,0),(-1,-1),14),("RIGHTPADDING",(0,0),(-1,-1),8)]))
+            def field_row(label,value,vsize=10): return [p(label,size=8,color="#9ca3af"),p(value,bold=True,size=vsize)]
+            body_rows=[]
+            if desc: body_rows.append(field_row("OBJET DU TRAJET",desc,11))
             if affaire or ouvrage:
-                val = f"{affaire}  -  {ouvrage}" if affaire and ouvrage else affaire or ouvrage
-                body_rows.append(field_row("CHANTIER / OUVRAGE", val))
+                val=f"{affaire}  -  {ouvrage}" if affaire and ouvrage else affaire or ouvrage
+                body_rows.append(field_row("CHANTIER / OUVRAGE",val))
+            if finition and finition not in ["","Aucune"]: body_rows.append(field_row("FINITION",finition))
             if lieu_dep or lieu_arr:
-                ts = f"{lieu_dep}  ->  {lieu_arr}" if lieu_dep and lieu_arr else lieu_dep or lieu_arr
-                body_rows.append(field_row("TRAJET", ts))
-            if adr:     body_rows.append(field_row("ADRESSE", adr))
-            if cnt or tel: body_rows.append(field_row("CONTACT", f"{cnt}   {tel}".strip()))
-            if comm:    body_rows.append(field_row("NOTE", comm, 9))
-
+                ts=f"{lieu_dep}  ->  {lieu_arr}" if lieu_dep and lieu_arr else lieu_dep or lieu_arr
+                body_rows.append(field_row("TRAJET",ts))
+            if adr: body_rows.append(field_row("ADRESSE",adr))
+            if cnt or tel: body_rows.append(field_row("CONTACT",f"{cnt}   {tel}".strip()))
+            if comm: body_rows.append(field_row("NOTE",comm,9))
             if body_rows:
-                body_table = Table(body_rows, colWidths=[4*cm, 12.5*cm])
-                body_table.setStyle(TableStyle([
-                    ("VALIGN",       (0,0),(-1,-1),"TOP"),
-                    ("TOPPADDING",   (0,0),(-1,-1), 6),
-                    ("BOTTOMPADDING",(0,0),(-1,-1), 6),
-                    ("LEFTPADDING",  (0,0),(-1,-1), 14),
-                    ("LINEBELOW",    (0,0),(-1,-2), 0.3, BORDER),
-                ]))
-                body_wrap = Table([[body_table]], colWidths=[18*cm])
-                body_wrap.setStyle(TableStyle([
-                    ("BACKGROUND",   (0,0),(-1,-1), WHITE),
-                    ("TOPPADDING",   (0,0),(-1,-1), 2),
-                    ("BOTTOMPADDING",(0,0),(-1,-1), 6),
-                ]))
-            else:
-                body_wrap = Spacer(1, 0.3*cm)
-
-            card = Table([[titre_row],[body_wrap]], colWidths=[18*cm])
-            card.setStyle(TableStyle([
-                ("LINEBEFORE", (0,0),(0,-1), 5, cam_dark_c),
-                ("LINEABOVE",  (0,0),(-1,0), 0.5, BORDER),
-                ("LINEBELOW",  (0,-1),(-1,-1), 0.5, BORDER),
-                ("LINEAFTER",  (0,0),(-1,-1), 0.5, BORDER),
-            ]))
-            story.append(KeepTogether([card]))
-            story.append(Spacer(1, 0.5*cm))
-
-    story.append(Spacer(1, 0.3*cm))
-    story.append(HRFlowable(width="100%", thickness=0.5, color=BORDER))
-    story.append(Spacer(1, 0.15*cm))
-    story.append(p(f"Denjean - Artisan du Metal   .   {jour_label}   .   {nb} trajet(s)",
-                   size=8, color="#9ca3af", align=TA_CENTER))
-    doc.build(story)
-    buf.seek(0)
-    return buf.read()
+                body_table=Table(body_rows,colWidths=[4*cm,12.5*cm])
+                body_table.setStyle(TableStyle([("VALIGN",(0,0),(-1,-1),"TOP"),("TOPPADDING",(0,0),(-1,-1),6),("BOTTOMPADDING",(0,0),(-1,-1),6),("LEFTPADDING",(0,0),(-1,-1),14),("LINEBELOW",(0,0),(-1,-2),0.3,BORDER)]))
+                body_wrap=Table([[body_table]],colWidths=[18*cm])
+                body_wrap.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,-1),WHITE),("TOPPADDING",(0,0),(-1,-1),2),("BOTTOMPADDING",(0,0),(-1,-1),6)]))
+            else: body_wrap=Spacer(1,0.3*cm)
+            card=Table([[titre_row],[body_wrap]],colWidths=[18*cm])
+            card.setStyle(TableStyle([("LINEBEFORE",(0,0),(0,-1),5,cam_dark_c),("LINEABOVE",(0,0),(-1,0),0.5,BORDER),("LINEBELOW",(0,-1),(-1,-1),0.5,BORDER),("LINEAFTER",(0,0),(-1,-1),0.5,BORDER)]))
+            story.append(KeepTogether([card])); story.append(Spacer(1,0.5*cm))
+    story.append(Spacer(1,0.3*cm)); story.append(HRFlowable(width="100%",thickness=0.5,color=BORDER)); story.append(Spacer(1,0.15*cm))
+    story.append(p(f"Denjean - Artisan du Metal   .   {jour_label}   .   {nb} trajet(s)",size=8,color="#9ca3af",align=TA_CENTER))
+    doc.build(story); buf.seek(0); return buf.read()
 
 def check_auth():
     if "auth" not in st.session_state: st.session_state.auth=False
@@ -554,6 +530,51 @@ def check_auth():
                 else: st.error("Mot de passe incorrect")
         st.stop()
 
+def section_finition_recue(df, ids_planifies, col_id):
+    """Section verte : taches Finition recue pretes a livrer."""
+    taches_fin = load_taches_finition_recue()
+    if taches_fin.empty: return
+    non_planifiees = []
+    planifiees = []
+    for _, t in taches_fin.iterrows():
+        tid = str(t.get(col_id, "")) if col_id else ""
+        (planifiees if tid and tid in ids_planifies else non_planifiees).append(t)
+    if not non_planifiees and not planifiees: return
+    st.markdown('<div class="bandeau-finition">\U0001f7e2 Finition recue \u2014 prets a livrer</div>', unsafe_allow_html=True)
+    if non_planifiees:
+        st.markdown(f"**{len(non_planifiees)} ouvrage(s) pret(s) :**")
+        for t in non_planifiees:
+            affaire = str(t.get("affaire",""))
+            ouvrage = str(t.get("ouvrage", t.get("designation","")))
+            personne = str(t.get("personne",""))
+            finition = str(t.get("finition",""))
+            id_tache = str(t.get(col_id,"")) if col_id else ""
+            bon_url = str(t.get("bon_livraison_url",""))
+            key_suf = f"fin_{affaire}_{ouvrage}_{id_tache}".replace(" ","_")
+            col_info, col_btn = st.columns([7, 2])
+            with col_info:
+                fin_badge = finition_badge_html(finition) if finition and finition != "Aucune" else ""
+                bon_link = f'<a href="{bon_url}" target="_blank" style="font-size:0.75rem;color:#16a34a;">\U0001f4ce BL</a>' if bon_url and bon_url.startswith("http") else ""
+                st.markdown(
+                    f'<div class="ouvrage-card-finition">'
+                    f'<div class="ouvrage-sub" style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.05em;color:#f97316;margin-bottom:2px;">\U0001f3d7\ufe0f {affaire}</div>'
+                    f'<div class="ouvrage-label">\U0001f4e6 {ouvrage} {fin_badge} {bon_link}</div>'
+                    f'<div class="ouvrage-sub">\U0001f477 {personne}</div>'
+                    f'</div>', unsafe_allow_html=True)
+            with col_btn:
+                if st.button("Planifier \U0001f69a", key=f"btn_fin_{key_suf}", use_container_width=True, type="primary"):
+                    st.session_state[f"open_form_fin_{key_suf}"] = True
+            if st.session_state.get(f"open_form_fin_{key_suf}", False):
+                with st.container():
+                    form_planif_rapide(affaire, ouvrage, id_tache, finition=finition, key_suffix=f"fin_{key_suf}")
+            # Upload bon de livraison
+            with st.expander(f"\U0001f4ce Bon de livraison — {ouvrage}", expanded=False):
+                widget_bon_livraison(id_tache, ouvrage, bon_url, key_prefix="fin")
+    if planifiees:
+        with st.expander(f"\u2713 {len(planifiees)} deja planifie(s)"):
+            for t in planifiees:
+                st.markdown(f"- \U0001f535 **{t.get('ouvrage',t.get('designation',''))}** \u2014 {t.get('affaire','')}")
+
 def onglet_dashboard(df):
     today=date.today(); sem=sem_courante()
     df_sem=df[df["semaine"]==sem] if not df.empty and "semaine" in df.columns else pd.DataFrame()
@@ -570,13 +591,20 @@ def onglet_dashboard(df):
     st.markdown("---")
     st.markdown(legende_camions_html(), unsafe_allow_html=True)
     ws=get_ws("livraisons"); all_rows=ws.get_all_records() if ws else []
+    ids_planifies=set(df["id_tache"].astype(str).tolist()) if not df.empty and "id_tache" in df.columns else set()
+    taches_df=load_taches_atelier()
+    col_id=next((c for c in taches_df.columns if c in ["id","id_tache","numero"]),None) if not taches_df.empty else None
+
+    # --- SECTION FINITION RECUE ---
+    section_finition_recue(df, ids_planifies, col_id)
+    st.markdown("---")
+
+    # --- SECTION TERMINES ---
     st.markdown("### \U0001f7e2 Ouvrages termines \u2014 prets a expedier")
-    taches_df=load_taches_terminees()
-    if not taches_df.empty:
-        ids_planifies=set(df["id_tache"].astype(str).tolist()) if not df.empty and "id_tache" in df.columns else set()
-        col_id=next((c for c in taches_df.columns if c in ["id","id_tache","numero"]),None)
+    taches_terminees = load_taches_terminees()
+    if not taches_terminees.empty:
         taches_non_planifiees=[]; taches_planifiees=[]
-        for _,t in taches_df.iterrows():
+        for _,t in taches_terminees.iterrows():
             tid=str(t.get(col_id,"")) if col_id else ""
             (taches_planifiees if tid and tid in ids_planifies else taches_non_planifiees).append(t)
         if not taches_non_planifiees: st.success("Tous les ouvrages termines ont une livraison planifiee \u2713")
@@ -585,15 +613,21 @@ def onglet_dashboard(df):
             for t in taches_non_planifiees:
                 affaire=str(t.get("affaire","")); ouvrage=str(t.get("ouvrage",t.get("designation","")))
                 personne=str(t.get("personne","")); id_tache=str(t.get(col_id,"")) if col_id else ""
+                finition=str(t.get("finition",""))
+                bon_url=str(t.get("bon_livraison_url",""))
                 key_suf=f"{affaire}_{ouvrage}_{id_tache}".replace(" ","_")
                 col_info,col_btn=st.columns([8,2])
                 with col_info:
-                    st.markdown(f'<div class="ouvrage-card"><div><div class="ouvrage-sub" style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.05em;color:#f97316;margin-bottom:2px;">\U0001f3d7\ufe0f {affaire}</div><div class="ouvrage-label">\U0001f4e6 {ouvrage}</div><div class="ouvrage-sub">\U0001f477 {personne}</div></div></div>',unsafe_allow_html=True)
+                    fin_badge = finition_badge_html(finition) if finition and finition != "Aucune" else ""
+                    bon_link = f'<a href="{bon_url}" target="_blank" style="font-size:0.75rem;color:#16a34a;">\U0001f4ce BL</a>' if bon_url and bon_url.startswith("http") else ""
+                    st.markdown(f'<div class="ouvrage-card"><div><div class="ouvrage-sub" style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.05em;color:#f97316;margin-bottom:2px;">\U0001f3d7\ufe0f {affaire}</div><div class="ouvrage-label">\U0001f4e6 {ouvrage} {fin_badge} {bon_link}</div><div class="ouvrage-sub">\U0001f477 {personne}</div></div></div>',unsafe_allow_html=True)
                 with col_btn:
                     if st.button("Planifier \u2192",key=f"btn_planif_{key_suf}",use_container_width=True,type="primary"):
                         st.session_state[f"open_form_{key_suf}"]=True
                 if st.session_state.get(f"open_form_{key_suf}",False):
-                    with st.container(): form_planif_rapide(affaire,ouvrage,id_tache,key_suffix=key_suf)
+                    with st.container(): form_planif_rapide(affaire,ouvrage,id_tache,finition=finition,key_suffix=key_suf)
+                with st.expander(f"\U0001f4ce Bon de livraison — {ouvrage}", expanded=False):
+                    widget_bon_livraison(id_tache, ouvrage, bon_url, key_prefix="term")
         if taches_planifiees:
             with st.expander(f"\u2713 {len(taches_planifiees)} ouvrage(s) deja planifie(s)"):
                 for t in taches_planifiees: st.markdown(f"- \U0001f535 **{t.get('ouvrage',t.get('designation',''))}** \u2014 {t.get('affaire','')}")
@@ -615,7 +649,7 @@ def onglet_dashboard(df):
     if not df.empty and "type_trajet" in df.columns:
         counts=df["type_trajet"].value_counts(); cols=st.columns(max(len(counts),1))
         for i,(typ,cnt) in enumerate(counts.items()):
-            with cols[i]: st.markdown(f'<div class="stat-card"><div style="font-size:1.5rem;">{TYPE_EMOJI.get(typ,"\u26ab")}</div><div class="stat-num" style="font-size:1.5rem;">{cnt}</div><div class="stat-label">{typ}</div></div>',unsafe_allow_html=True)
+            with cols[i]: st.markdown(f'<div class="stat-card"><div style="font-size:1.5rem;">{TYPE_EMOJI.get(typ,chr(9899))}</div><div class="stat-num" style="font-size:1.5rem;">{cnt}</div><div class="stat-label">{typ}</div></div>',unsafe_allow_html=True)
     st.markdown("---")
     with st.expander(f"\U0001f4c2 Archives ({len(df_archive) if not df_archive.empty else 0})"):
         if df_archive.empty: st.info("Aucun trajet archive.")
@@ -721,18 +755,10 @@ def onglet_calendrier(df):
             st.markdown(f'<div class="col-jour {today_cls}"><div class="col-jour-header">{JOURS_FR[i]}<br><span class="day-num">{d.day}</span><span style="font-size:0.75rem;color:#888;">{d.strftime("%b").capitalize()}</span></div>{cards}</div>',unsafe_allow_html=True)
             if not df_jour.empty:
                 pdf_key = f"pdf_bytes_{d}"
-                if st.button("\U0001f5a8\ufe0f PDF", key=f"pdf_btn_{d}", use_container_width=True,
-                             help=f"Generer le PDF du {JOURS_FR[i]} {d.strftime('%d/%m/%Y')}"):
+                if st.button("\U0001f5a8\ufe0f PDF", key=f"pdf_btn_{d}", use_container_width=True):
                     st.session_state[pdf_key] = generate_day_pdf(str(d), df_jour.to_dict("records"))
                 if st.session_state.get(pdf_key):
-                    st.download_button(
-                        label="\u2b07\ufe0f Telecharger",
-                        data=st.session_state[pdf_key],
-                        file_name=f"livraisons_{JOURS_FR[i].lower()}_{d.strftime('%d-%m-%Y')}.pdf",
-                        mime="application/pdf",
-                        key=f"pdf_dl_{d}",
-                        use_container_width=True,
-                    )
+                    st.download_button(label="\u2b07\ufe0f Telecharger",data=st.session_state[pdf_key],file_name=f"livraisons_{JOURS_FR[i].lower()}_{d.strftime('%d-%m-%Y')}.pdf",mime="application/pdf",key=f"pdf_dl_{d}",use_container_width=True)
     st.markdown("---"); st.markdown("### \U0001f4cb Detail de la semaine")
     if df_sem.empty: st.info("Aucun trajet cette semaine."); return
     ws=get_ws("livraisons"); all_rows=ws.get_all_records() if ws else []
