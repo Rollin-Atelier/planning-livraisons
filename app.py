@@ -67,6 +67,7 @@ SCOPES = ["https://www.googleapis.com/auth/spreadsheets","https://www.googleapis
 SHEET_URL    = "https://docs.google.com/spreadsheets/d/1KbS5fA33r6o1isdXdT_dWZMDIgtbAG17t0TKa9bdDpw"
 MOT_DE_PASSE = "atelier2026"
 DRIVE_FOLDER_NAME = "Bons de livraison"
+SHARED_DRIVE_ID  = "1mISRu9ryxq5PX_J1mq-QXbsmJp1EDXOO"  # Shared Drive Denjean
 TYPES_TRAJET  = ["Livraison ouvrage","Enlevement / Collecte","Livraison autre","Trajet divers"]
 DESTINATIONS  = ["Peinture","Galvanisation","Chantier","Autre"]
 LIEUX_DEPART  = ["Atelier","Peinture","Galvanisation","Chantier","Autre"]
@@ -176,20 +177,27 @@ def load_taches_finition_recue():
     return df[mask].copy()
 
 def get_or_create_drive_folder():
-    """Retourne l'id du dossier Drive 'Bons de livraison', le cree si besoin."""
+    """Retourne l'id du dossier 'Bons de livraison' dans le Shared Drive, le cree si besoin."""
     try:
         creds = get_creds()
         service = build("drive", "v3", credentials=creds)
+        # Chercher le dossier dans le Shared Drive
         results = service.files().list(
-            q=f"name='{DRIVE_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false",
+            q=f"name='{DRIVE_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false and '{SHARED_DRIVE_ID}' in parents",
+            includeItemsFromAllDrives=True,
+            supportsAllDrives=True,
+            corpora="drive",
+            driveId=SHARED_DRIVE_ID,
             fields="files(id, name)"
         ).execute()
         files = results.get("files", [])
         if files:
             return files[0]["id"]
+        # Creer le dossier dans le Shared Drive
         folder = service.files().create(
-            body={"name": DRIVE_FOLDER_NAME, "mimeType": "application/vnd.google-apps.folder"},
-            fields="id"
+            body={"name": DRIVE_FOLDER_NAME, "mimeType": "application/vnd.google-apps.folder", "parents": [SHARED_DRIVE_ID]},
+            fields="id",
+            supportsAllDrives=True
         ).execute()
         return folder["id"]
     except Exception as e:
@@ -197,7 +205,7 @@ def get_or_create_drive_folder():
         return None
 
 def upload_to_drive(file_bytes, filename, mime_type="application/pdf"):
-    """Upload un fichier sur Drive et retourne son URL publique."""
+    """Upload un fichier sur le Shared Drive et retourne son URL publique."""
     try:
         creds = get_creds()
         service = build("drive", "v3", credentials=creds)
@@ -205,9 +213,18 @@ def upload_to_drive(file_bytes, filename, mime_type="application/pdf"):
         if not folder_id: return None
         media = MediaIoBaseUpload(io.BytesIO(file_bytes), mimetype=mime_type, resumable=False)
         file_meta = {"name": filename, "parents": [folder_id]}
-        uploaded = service.files().create(body=file_meta, media_body=media, fields="id").execute()
+        uploaded = service.files().create(
+            body=file_meta,
+            media_body=media,
+            fields="id",
+            supportsAllDrives=True
+        ).execute()
         file_id = uploaded.get("id")
-        service.permissions().create(fileId=file_id, body={"type":"anyone","role":"reader"}).execute()
+        service.permissions().create(
+            fileId=file_id,
+            body={"type": "anyone", "role": "reader"},
+            supportsAllDrives=True
+        ).execute()
         return f"https://drive.google.com/file/d/{file_id}/view"
     except Exception as e:
         st.error(f"Erreur upload Drive : {e}")
