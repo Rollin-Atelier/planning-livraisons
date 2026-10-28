@@ -401,7 +401,7 @@ def form_planif_rapide(affaire, ouvrage, id_tache, key_suffix=""):
         c1,c2=st.columns(2)
         with c1: semaine=st.selectbox("Semaine",semaines,index=idx_s,key=f"sem_{key_suffix}")
         with c2: camion=st.selectbox("Vehicule",CAMIONS,key=f"cam_{key_suffix}")
-        dates_sem=semaine_to_dates(semaine); opts_dates=[d.strftime("%A %d/%m/%Y").capitalize() for d in dates_sem]
+        dates_sem=semaine_to_dates(semaine); opts_dates=[fr_date_label(d) for d in dates_sem]
         c3,c4=st.columns(2)
         with c3: date_str=st.selectbox("Jour",opts_dates,key=f"day_{key_suffix}")
         with c4: destination=st.selectbox("Destination",DESTINATIONS,key=f"dest_{key_suffix}")
@@ -456,6 +456,13 @@ def generate_day_pdf(date_str, trajets):
     except: d = dt2.date.today()
 
     JOURS_FR2 = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"]
+MOIS_FR_COURT = ["","jan","fév","mar","avr","mai","juin","juil","août","sep","oct","nov","déc"]
+
+def fr_date_label(d):
+    """Retourne ex: 'Lundi 28/10/2026' en français."""
+    return f"{JOURS_FR2[d.weekday()]} {d.strftime('%d/%m/%Y')}"
+
+
     MOIS_FR  = {1:"janvier",2:"fevrier",3:"mars",4:"avril",5:"mai",6:"juin",
                 7:"juillet",8:"aout",9:"septembre",10:"octobre",11:"novembre",12:"decembre"}
     jour_label = f"{JOURS_FR2[d.weekday()]} {d.day} {MOIS_FR[d.month]} {d.year}"
@@ -764,7 +771,7 @@ def onglet_dashboard(df):
                 with st.form(f"form_plan_att_{id_att}"):
                     pc1,pc2,pc3,pc4,pc5 = st.columns(5)
                     p_sem = pc1.selectbox("Semaine", semaines, index=idx_s, key=f"psem_{id_att}")
-                    dates_p = semaine_to_dates(p_sem); opts_p = [d.strftime("%A %d/%m/%Y").capitalize() for d in dates_p]
+                    dates_p = semaine_to_dates(p_sem); opts_p = [fr_date_label(d) for d in dates_p]
                     p_day = pc2.selectbox("Jour", opts_p, key=f"pday_{id_att}")
                     p_hd  = pc3.selectbox("Heure debut", heures, index=idx_8, key=f"phd_{id_att}")
                     p_hf  = pc4.selectbox("Heure fin", heures, index=idx_10, key=f"phf_{id_att}")
@@ -785,7 +792,7 @@ def onglet_dashboard(df):
             for _,row in df_f.head(10).iterrows():
                 d=row["date_livraison"]
                 if pd.notna(d):
-                    d_str=d.strftime("%A %d/%m/%Y").capitalize()
+                    d_str=fr_date_label(d)
                     if d_str!=prev_date: st.markdown(f"**{d_str}**"); prev_date=d_str
                 trajet_avec_menu(row,ws,all_rows,key_prefix="dash")
     st.markdown("---"); st.markdown("### \U0001f4ca Repartition par type")
@@ -801,7 +808,7 @@ def onglet_dashboard(df):
             for _,row in df_archive.sort_values("date_livraison",ascending=False).iterrows():
                 d=row.get("date_livraison")
                 if pd.notna(d):
-                    d_str=pd.to_datetime(d).strftime("%A %d/%m/%Y").capitalize()
+                    d_str=fr_date_label(pd.to_datetime(d).date())
                     if d_str!=prev_date: st.markdown(f"**{d_str}**"); prev_date=d_str
                 col_card,col_menu=st.columns([11,1])
                 with col_card: st.markdown(card_html(row,archive=True),unsafe_allow_html=True)
@@ -838,7 +845,7 @@ def onglet_ajouter():
             else: st.warning("Aucun ouvrage marque Termine dans le planning atelier.")
     sans_date = st.checkbox("\U0001f4cb Trajet sans date (a planifier plus tard)", key="sans_date_cb")
     with st.form("form_trajet",clear_on_submit=True):
-        dates_sem=semaine_to_dates(semaine); opts_dates=[d.strftime("%A %d/%m/%Y").capitalize() for d in dates_sem]
+        dates_sem=semaine_to_dates(semaine); opts_dates=[fr_date_label(d) for d in dates_sem]
         c3,c4=st.columns(2)
         if not st.session_state.get("sans_date_cb", False):
             with c3: date_str=st.selectbox("Jour *",opts_dates) if opts_dates else st.text_input("Date")
