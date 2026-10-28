@@ -141,9 +141,19 @@ def init_livraisons():
         return None
 
 def load_livraisons():
+    import time
     ws = get_ws("livraisons")
     if ws is None: return pd.DataFrame()
-    data = ws.get_all_records()
+    for attempt in range(3):
+        try:
+            data = ws.get_all_records()
+            break
+        except Exception:
+            if attempt < 2:
+                time.sleep(2)
+            else:
+                st.warning("⚠️ Connexion Google Sheets temporairement indisponible. Rechargez la page.")
+                return pd.DataFrame()
     if not data: return pd.DataFrame()
     df = pd.DataFrame(data)
     if "date_livraison" in df.columns:
@@ -153,9 +163,18 @@ def load_livraisons():
     return df
 
 def load_taches_terminees():
+    import time
     ws = get_ws("taches")
     if ws is None: return pd.DataFrame()
-    data = ws.get_all_records()
+    for attempt in range(3):
+        try:
+            data = ws.get_all_records()
+            break
+        except Exception:
+            if attempt < 2:
+                time.sleep(2)
+            else:
+                return pd.DataFrame()
     if not data: return pd.DataFrame()
     df = pd.DataFrame(data)
     df.columns = [c.lower().strip() for c in df.columns]
@@ -164,10 +183,17 @@ def load_taches_terminees():
     return df[df[col_s].str.strip().str.lower() == "termine"].copy()
 
 def load_alertes():
+    import time
     ws = get_ws("alertes_chauffeurs")
     if ws is None: return []
-    data = ws.get_all_records()
-    return data if data else []
+    for attempt in range(3):
+        try:
+            data = ws.get_all_records()
+            return data if data else []
+        except Exception:
+            if attempt < 2:
+                time.sleep(2)
+    return []
 
 def save_alerte(row_data):
     sh = open_sheet()
@@ -186,10 +212,17 @@ def delete_alerte(id_alerte):
             ws.delete_rows(i + 2); break
 
 def load_attente():
+    import time
     ws = get_ws("trajets_attente")
     if ws is None: return []
-    data = ws.get_all_records()
-    return data if data else []
+    for attempt in range(3):
+        try:
+            data = ws.get_all_records()
+            return data if data else []
+        except Exception:
+            if attempt < 2:
+                time.sleep(2)
+    return []
 
 def save_attente(row_data):
     sh = open_sheet()
