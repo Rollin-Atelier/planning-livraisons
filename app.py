@@ -385,7 +385,7 @@ def form_planif_rapide(affaire, ouvrage, id_tache, key_suffix=""):
             try:
                 save_attente(row_att)
                 st.success(f"Trajet enregistre en attente de date : {description or ouvrage}")
-                st.balloons(); st.rerun()
+                st.snow(); st.rerun()
             except Exception as e: st.error(f"Erreur : {e}")
         else:
             date_liv=""
@@ -393,7 +393,7 @@ def form_planif_rapide(affaire, ouvrage, id_tache, key_suffix=""):
                 try: idx_d=opts_dates.index(date_str); date_liv=dates_sem[idx_d].strftime("%Y-%m-%d")
                 except: date_liv=""
             row=[str(uuid.uuid4())[:8],"Livraison ouvrage",id_tache,affaire,ouvrage,lieu_depart,lieu_depart_autre,lieu_arrivee,lieu_arrivee_autre,destination,nom_chantier,f"Livraison {ouvrage}",adresse,contact_nom,contact_tel,date_liv,semaine,heure_debut,heure_fin,camion,"Planifie",commentaire]
-            try: save_trajet(row); st.success(f"Livraison planifiee : {ouvrage} le {date_str}"); st.balloons(); st.rerun()
+            try: save_trajet(row); st.success(f"Livraison planifiee : {ouvrage} le {date_str}"); st.snow(); st.rerun()
             except Exception as e: st.error(f"Erreur : {e}")
 
 def generate_day_pdf(date_str, trajets):
@@ -838,7 +838,7 @@ def onglet_ajouter():
             try:
                 save_attente(row_att)
                 st.success(f"Trajet enregistre en attente de date : {description}")
-                st.balloons(); st.rerun()
+                st.snow(); st.rerun()
             except Exception as e: st.error(f"Erreur : {e}")
         else:
             date_liv=""
@@ -846,7 +846,7 @@ def onglet_ajouter():
                 try: idx_d=opts_dates.index(date_str); date_liv=dates_sem[idx_d].strftime("%Y-%m-%d")
                 except: date_liv=""
             row=[str(uuid.uuid4())[:8],type_trajet_pre,id_tache,affaire,ouvrage,lieu_depart,lieu_depart_autre,lieu_arrivee,lieu_arrivee_autre,destination,nom_chantier,description,adresse,contact_nom,contact_tel,date_liv,semaine,heure_debut,heure_fin,camion,"Planifie",commentaire]
-            try: save_trajet(row); st.success(f"Livraison planifiee le {date_str}"); st.balloons(); st.rerun()
+            try: save_trajet(row); st.success(f"Livraison planifiee le {date_str}"); st.snow(); st.rerun()
             except Exception as e: st.error(f"Erreur : {e}")
 
 def onglet_calendrier(df):
