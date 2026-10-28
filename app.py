@@ -98,14 +98,14 @@ CHAUFFEURS = ["Christophe"]
 def cam_color(cam, key="dark"):
     return CAMION_COLORS.get(cam, CAMION_DEFAULT)[key]
 
-@st.cache_resource
+@st.cache_resource(ttl=300)
 def get_client():
     info = dict(st.secrets["gcp_service_account"])
     info["private_key"] = info["private_key"].replace("\\n","\n")
     creds = Credentials.from_service_account_info(info, scopes=SCOPES)
     return gspread.authorize(creds)
 
-@st.cache_resource
+@st.cache_resource(ttl=300)
 def open_sheet():
     return get_client().open_by_url(SHEET_URL)
 
