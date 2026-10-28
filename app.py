@@ -293,7 +293,10 @@ def card_html(row, archive=False):
     elif lieu_arr_label: parts.append(f"\U0001f4cd Arrivee : {lieu_arr_label}")
     if affaire and typ=="Livraison ouvrage": parts.append(f"\U0001f3d7\ufe0f {affaire}")
     if hd and hf: parts.append(f"\u23f1 {hd} - {hf}")
-    if adr: parts.append(f"\U0001f4cc {adr}")
+    if adr:
+        import urllib.parse
+        adr_enc = urllib.parse.quote(adr)
+        parts.append(f'\U0001f4cc <a href="https://maps.google.com/?q={adr_enc}" target="_blank" style="color:#f97316;text-decoration:none;">{adr} 🗺️</a>')
     if cnt: parts.append(f"\U0001f464 {cnt}")
     cam_html = cam_badge_html(cam) if cam and not archive else (f"\U0001f69a {cam}" if cam else "")
     if cam and not archive:
