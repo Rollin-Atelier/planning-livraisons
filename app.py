@@ -91,6 +91,7 @@ TYPE_EMOJI = {"Livraison ouvrage":"\U0001f535","Enlevement / Collecte":"\U0001f7
 STATUT_BADGE = {"Planifie":"badge-planifie","Livre":"badge-livre","Reporte":"badge-reporte"}
 HEADER_LIVRAISONS = ["id_trajet","type_trajet","id_tache","affaire","ouvrage","lieu_depart","lieu_depart_autre","lieu_arrivee","lieu_arrivee_autre","destination","nom_chantier","description","adresse","contact_nom","contact_tel","date_livraison","semaine","heure_debut","heure_fin","camion","statut","commentaire"]
 HEADER_ALERTES = ["id_alerte","chauffeur","date_alerte","heure_debut","heure_fin","type_alerte","message"]
+HEADER_ATTENTE = ["id_attente","type_trajet","affaire","ouvrage","lieu_depart","lieu_arrivee","description","adresse","contact_nom","contact_tel","camion","commentaire","created"]
 TYPES_ALERTE = ["Conge", "RDV medical", "Depart anticipe", "Absent", "Autre"]
 CHAUFFEURS = ["Christophe"]
 
@@ -693,18 +694,17 @@ def onglet_dashboard(df):
     attentes = load_attente()
     if attentes:
         st.markdown("---")
-        st.markdown(f"### \U0001f550 Trajets a planifier — en attente de date ({len(attentes)})")
+        st.markdown(f"### \U0001f550 Trajets en attente de date ({len(attentes)})")
         heures = heures_list(); idx_8 = heures.index("08:00") if "08:00" in heures else 0; idx_10 = heures.index("10:00") if "10:00" in heures else 4
         semaines = get_semaines(); sem_def = sem_courante(); idx_s = semaines.index(sem_def) if sem_def in semaines else 2
         for a in attentes:
             id_att = str(a.get("id_attente",""))
-            c1, c2, c3 = st.columns([6, 2, 2])
+            c1, c2 = st.columns([8, 3])
             with c1:
-                st.markdown(f'''<div class="attente-card"><div class="attente-titre">\U0001f550 {a.get("affaire","")} \u2014 {a.get("ouvrage","") or a.get("description","")}</div><div class="attente-detail">\U0001f69b {a.get("camion","") or "Vehicule non defini"} &nbsp;|&nbsp; \U0001f4cd {a.get("lieu_depart","")} \u2192 {a.get("lieu_arrivee","")}</div><div class="attente-detail">{a.get("commentaire","")}</div></div>''', unsafe_allow_html=True)
+                st.markdown(f'''<div class="attente-card"><div class="attente-titre">\U0001f550 {a.get("affaire","")} \u2014 {a.get("ouvrage","") or a.get("description","")}</div><div class="attente-detail">\U0001f69b {a.get("camion","") or "Vehicule non defini"} &nbsp;|&nbsp; \U0001f4cd {a.get("lieu_depart","")} -> {a.get("lieu_arrivee","")}</div><div class="attente-detail">{a.get("commentaire","")}</div></div>''', unsafe_allow_html=True)
             with c2:
-                if st.button("\U0001f4c5 Donner une date", key=f"plan_att_{id_att}", use_container_width=True, type="primary"):
-                    st.session_state[f"open_plan_att_{id_att}"] = not st.session_state.get(f"open_plan_att_{id_att}", False)
-            with c3:
+                if st.button("\U0001f4c5 Planifier", key=f"plan_att_{id_att}", use_container_width=True, type="primary"):
+                    st.session_state[f"open_plan_att_{id_att}"] = True
                 if st.button("\U0001f5d1 Supprimer", key=f"del_att_{id_att}", use_container_width=True):
                     delete_attente(id_att); st.rerun()
             if st.session_state.get(f"open_plan_att_{id_att}", False):
@@ -716,9 +716,217 @@ def onglet_dashboard(df):
                     p_hd  = pc3.selectbox("Heure debut", heures, index=idx_8, key=f"phd_{id_att}")
                     p_hf  = pc4.selectbox("Heure fin", heures, index=idx_10, key=f"phf_{id_att}")
                     p_cam = pc5.selectbox("Vehicule", CAMIONS, key=f"pcam_{id_att}")
-                    if st.form_submit_button("\u2705 Confirmer la planification", type="primary", use_container_width=True):
+                    if st.form_submit_button("Confirmer", type="primary", use_container_width=True):
                         try: idx_d = opts_p.index(p_day); date_liv = dates_p[idx_d]
                         except: date_liv = date.today()
                         planifier_depuis_attente(id_att, date_liv, p_sem, p_hd, p_hf, p_cam)
                         st.session_state.pop(f"open_plan_att_{id_att}", None)
                         st.success("Trajet planifie !"); st.rerun()
+        st.markdown("---"); st.markdown("### \U0001f4c5 Prochains trajets")
+    if df_actifs.empty: st.info("Aucun trajet actif pour le moment.")
+    else:
+        df_f=df_actifs[df_actifs["date_livraison"].notna()&(df_actifs["date_livraison"].dt.date>=today)&(df_actifs["statut"]!="Livre")].sort_values("date_livraison") if "date_livraison" in df_actifs.columns else pd.DataFrame()
+        if df_f.empty: st.info("Aucun trajet a venir.")
+        else:
+            prev_date=None
+            for _,row in df_f.head(10).iterrows():
+                d=row["date_livraison"]
+                if pd.notna(d):
+                    d_str=d.strftime("%A %d/%m/%Y").capitalize()
+                    if d_str!=prev_date: st.markdown(f"**{d_str}**"); prev_date=d_str
+                trajet_avec_menu(row,ws,all_rows,key_prefix="dash")
+    st.markdown("---"); st.markdown("### \U0001f4ca Repartition par type")
+    if not df.empty and "type_trajet" in df.columns:
+        counts=df["type_trajet"].value_counts(); cols=st.columns(max(len(counts),1))
+        for i,(typ,cnt) in enumerate(counts.items()):
+            with cols[i]: st.markdown(f'<div class="stat-card"><div style="font-size:1.5rem;">{TYPE_EMOJI.get(typ,"\u26ab")}</div><div class="stat-num" style="font-size:1.5rem;">{cnt}</div><div class="stat-label">{typ}</div></div>',unsafe_allow_html=True)
+    st.markdown("---")
+    with st.expander(f"\U0001f4c2 Archives ({len(df_archive) if not df_archive.empty else 0})"):
+        if df_archive.empty: st.info("Aucun trajet archive.")
+        else:
+            prev_date=None
+            for _,row in df_archive.sort_values("date_livraison",ascending=False).iterrows():
+                d=row.get("date_livraison")
+                if pd.notna(d):
+                    d_str=pd.to_datetime(d).strftime("%A %d/%m/%Y").capitalize()
+                    if d_str!=prev_date: st.markdown(f"**{d_str}**"); prev_date=d_str
+                col_card,col_menu=st.columns([11,1])
+                with col_card: st.markdown(card_html(row,archive=True),unsafe_allow_html=True)
+                with col_menu:
+                    id_t=str(row.get("id_trajet",""))
+                    with st.popover("\u22ee"):
+                        if st.button("Marquer Livre",key=f"arch_livre_{id_t}",use_container_width=True,type="primary"):
+                            if ws:
+                                for ri,r in enumerate(all_rows):
+                                    if str(r.get("id_trajet",""))==id_t: do_update_statut(ws,ri,"Livre"); st.success("Mis a jour !"); st.rerun(); break
+                        if st.button("\U0001f5d1 Supprimer",key=f"arch_del_{id_t}",use_container_width=True):
+                            if ws:
+                                for ri,r in enumerate(all_rows):
+                                    if str(r.get("id_trajet",""))==id_t: do_delete_trajet(ws,ri); st.success("Supprime !"); st.rerun(); break
+
+def onglet_ajouter():
+    st.markdown("### \u2795 Nouveau trajet")
+    semaines=get_semaines(); sem_def=sem_courante(); idx_s=semaines.index(sem_def) if sem_def in semaines else 2
+    heures=heures_list(); idx_8=heures.index("08:00") if "08:00" in heures else 0; idx_10=heures.index("10:00") if "10:00" in heures else 4
+    c1,c2=st.columns(2)
+    with c1: type_trajet_pre=st.selectbox("Type de trajet *",TYPES_TRAJET,key="type_trajet_sel")
+    with c2: semaine=st.selectbox("Semaine *",semaines,index=idx_s,key="semaine_sel")
+    affaire=ouvrage=id_tache=""
+    source_mode="Saisie manuelle"
+    if type_trajet_pre=="Livraison ouvrage":
+        source_mode=st.radio("Source de l ouvrage",["Depuis le planning atelier","Saisie manuelle"],horizontal=True,key="source_mode_radio")
+        if source_mode=="Depuis le planning atelier":
+            taches_df=load_taches_terminees()
+            if not taches_df.empty:
+                opts_t=taches_df.apply(lambda r:f"{r.get('affaire','')} - {r.get('ouvrage',r.get('designation',''))}",axis=1).tolist()
+                choix=st.selectbox("Ouvrage termine *",opts_t,key="ouvrage_termine_sel")
+                rt=taches_df.iloc[opts_t.index(choix)]
+                affaire=str(rt.get("affaire","")); ouvrage=str(rt.get("ouvrage",rt.get("designation",""))); id_tache=str(rt.get("id",rt.get("id_tache","")))
+            else: st.warning("Aucun ouvrage marque Termine dans le planning atelier.")
+    sans_date = st.checkbox("\U0001f4cb Trajet sans date (a planifier plus tard)", key="sans_date_cb")
+    with st.form("form_trajet",clear_on_submit=True):
+        dates_sem=semaine_to_dates(semaine); opts_dates=[d.strftime("%A %d/%m/%Y").capitalize() for d in dates_sem]
+        c3,c4=st.columns(2)
+        if not sans_date:
+            with c3: date_str=st.selectbox("Jour *",opts_dates) if opts_dates else st.text_input("Date")
+            with c4: camion=st.selectbox("Vehicule *",CAMIONS)
+            c5,c6=st.columns(2)
+            with c5: heure_debut=st.selectbox("Heure debut",heures,index=idx_8)
+            with c6: heure_fin=st.selectbox("Heure fin",heures,index=idx_10)
+        else:
+            with c3: camion=st.selectbox("Vehicule *",CAMIONS)
+            with c4: st.info("\U0001f4cb Date a definir ulterieurement")
+            date_str=""; heure_debut=""; heure_fin=""
+        cl1,cl2=st.columns(2)
+        with cl1:
+            lieu_depart=st.selectbox("Lieu de depart *",LIEUX_DEPART)
+            lieu_depart_autre=st.text_input("Preciser le lieu de depart") if lieu_depart=="Autre" else ""
+        with cl2:
+            lieu_arrivee=st.selectbox("Lieu d arrivee *",LIEUX_ARRIVEE)
+            lieu_arrivee_autre=st.text_input("Preciser le lieu d arrivee") if lieu_arrivee=="Autre" else ""
+        if type_trajet_pre=="Livraison ouvrage" and source_mode=="Saisie manuelle":
+            cm1,cm2=st.columns(2)
+            with cm1: affaire=st.text_input("Chantier / Affaire")
+            with cm2: ouvrage=st.text_input("Ouvrage")
+        description=st.text_input("Description / Objet du trajet *"); adresse=st.text_input("Adresse")
+        c7,c8=st.columns(2)
+        with c7: contact_nom=st.text_input("Contact sur place")
+        with c8: contact_tel=st.text_input("Telephone")
+        destination=nom_chantier=""
+        if type_trajet_pre in ["Livraison ouvrage","Livraison autre"]:
+            c9,c10=st.columns(2)
+            with c9: destination=st.selectbox("Destination",DESTINATIONS)
+            with c10:
+                if destination=="Chantier": nom_chantier=st.text_input("Nom du chantier")
+        commentaire=st.text_area("Commentaire",height=70)
+        submitted=st.form_submit_button("Enregistrer",type="primary",use_container_width=True)
+    if submitted:
+        if not description: st.error("La description est obligatoire."); return
+        date_liv=""
+        if dates_sem and date_str:
+            try: idx_d=opts_dates.index(date_str); date_liv=dates_sem[idx_d].strftime("%Y-%m-%d")
+            except: date_liv=""
+        row=[str(uuid.uuid4())[:8],type_trajet_pre,id_tache,affaire,ouvrage,lieu_depart,lieu_depart_autre,lieu_arrivee,lieu_arrivee_autre,destination,nom_chantier,description,adresse,contact_nom,contact_tel,date_liv,semaine,heure_debut,heure_fin,camion,"Planifie",commentaire]
+        try:
+            save_trajet(row)
+            st.success(f"Trajet enregistre : {description}")
+            st.balloons()
+            st.rerun()
+        except Exception as e:
+            st.error(f"Erreur : {e}")
+
+def onglet_calendrier(df):
+    st.markdown("### \U0001f4c5 Calendrier de la semaine")
+    semaines=get_semaines(); sem_def=sem_courante(); idx_def=semaines.index(sem_def) if sem_def in semaines else 2
+    col_sel,_=st.columns([4,1])
+    with col_sel: semaine=st.selectbox("Semaine",semaines,index=idx_def,label_visibility="collapsed")
+    dates_sem=semaine_to_dates(semaine)
+    if not dates_sem: st.error("Semaine invalide."); return
+    today=date.today()
+    df_sem=df[df["semaine"]==semaine].copy() if not df.empty and "semaine" in df.columns else pd.DataFrame()
+    nb=len(df_sem); d0=dates_sem[0].strftime("%d/%m/%Y"); d4=dates_sem[4].strftime("%d/%m/%Y")
+    st.markdown(f'<div style="background:white;border-radius:10px;padding:12px 18px;margin-bottom:8px;border-left:5px solid #f97316;"><strong>Semaine {semaine}</strong> &nbsp;|&nbsp; {d0} au {d4} &nbsp;|&nbsp; <strong>{nb} trajet(s)</strong></div>',unsafe_allow_html=True)
+    st.markdown(legende_camions_html(), unsafe_allow_html=True)
+    cols=st.columns(5)
+    for i,(col,d) in enumerate(zip(cols,dates_sem)):
+        today_cls="col-jour-today" if d==today else ""
+        df_jour=df_sem[df_sem["date_livraison"].dt.date==d].sort_values("heure_debut") if not df_sem.empty and "date_livraison" in df_sem.columns else pd.DataFrame()
+        with col:
+            cards="".join(card_html(r) for _,r in df_jour.iterrows()) if not df_jour.empty else '<div class="day-vide">\u2014</div>'
+            st.markdown(f'<div class="col-jour {today_cls}"><div class="col-jour-header">{JOURS_FR[i]}<br><span class="day-num">{d.day}</span><span style="font-size:0.75rem;color:#888;">{d.strftime("%b").capitalize()}</span></div>{cards}</div>',unsafe_allow_html=True)
+            if not df_jour.empty:
+                pdf_key = f"pdf_bytes_{d}"
+                if st.button("\U0001f5a8\ufe0f PDF", key=f"pdf_btn_{d}", use_container_width=True,
+                             help=f"Generer le PDF du {JOURS_FR[i]} {d.strftime('%d/%m/%Y')}"):
+                    st.session_state[pdf_key] = generate_day_pdf(str(d), df_jour.to_dict("records"))
+                if st.session_state.get(pdf_key):
+                    st.download_button(
+                        label="\u2b07\ufe0f Telecharger",
+                        data=st.session_state[pdf_key],
+                        file_name=f"livraisons_{JOURS_FR[i].lower()}_{d.strftime('%d-%m-%Y')}.pdf",
+                        mime="application/pdf",
+                        key=f"pdf_dl_{d}",
+                        use_container_width=True,
+                    )
+    st.markdown("---"); st.markdown("### \U0001f4cb Detail de la semaine")
+    if df_sem.empty: st.info("Aucun trajet cette semaine."); return
+    ws=get_ws("livraisons"); all_rows=ws.get_all_records() if ws else []
+    for i,d in enumerate(dates_sem):
+        df_jour=df_sem[df_sem["date_livraison"].dt.date==d].sort_values("heure_debut") if not df_sem.empty and "date_livraison" in df_sem.columns else pd.DataFrame()
+        if df_jour.empty: continue
+        st.markdown(f'<div class="bandeau-jour">{JOURS_FR[i]} {d.strftime("%d/%m/%Y")} &nbsp;\u2014&nbsp; {len(df_jour)} trajet(s)</div>',unsafe_allow_html=True)
+        for _,row in df_jour.iterrows(): trajet_avec_menu(row,ws,all_rows,key_prefix=f"cal_{i}")
+
+def onglet_alertes_attente():
+    st.markdown("### \u26a0\ufe0f Alertes chauffeurs")
+    with st.expander("\u2795 Ajouter une alerte", expanded=False):
+        with st.form("form_alerte", clear_on_submit=True):
+            c1,c2,c3 = st.columns(3)
+            chauffeur   = c1.selectbox("Chauffeur", CHAUFFEURS)
+            type_alerte = c2.selectbox("Type", TYPES_ALERTE)
+            date_alerte = c3.date_input("Date", value=date.today())
+            c4,c5 = st.columns(2)
+            heure_debut = c4.selectbox("Heure debut (optionnel)", [""]+heures_list())
+            heure_fin   = c5.selectbox("Heure fin (optionnel)",   [""]+heures_list())
+            message = st.text_area("Message / precision", height=70)
+            if st.form_submit_button("Enregistrer l alerte", type="primary", use_container_width=True):
+                row = [str(uuid.uuid4())[:8], chauffeur, str(date_alerte), heure_debut, heure_fin, type_alerte, message]
+                try: save_alerte(row); st.success(f"Alerte enregistree pour {chauffeur} le {date_alerte} !"); st.rerun()
+                except Exception as e: st.error(f"Erreur : {e}")
+    alertes = load_alertes()
+    if not alertes: st.info("Aucune alerte enregistree.")
+    else:
+        today_str = str(date.today())
+        alertes_f = sorted([a for a in alertes if str(a.get("date_alerte","")) >= today_str], key=lambda x: x.get("date_alerte",""))
+        alertes_p = sorted([a for a in alertes if str(a.get("date_alerte","")) < today_str],  key=lambda x: x.get("date_alerte",""), reverse=True)
+        for a in alertes_f:
+            hd = str(a.get("heure_debut","")); hf = str(a.get("heure_fin",""))
+            plage = f"{hd} -> {hf}" if hd and hf else hd or ""
+            c1,c2 = st.columns([10,1])
+            with c1: st.markdown(f'''<div class="alerte-card"><div class="alerte-titre">\u26a0\ufe0f {a.get("chauffeur","")} \u2014 {a.get("type_alerte","")} \u2014 {a.get("date_alerte","")}{" · " + plage if plage else ""}</div><div class="alerte-detail">{a.get("message","")}</div></div>''', unsafe_allow_html=True)
+            with c2:
+                if st.button("\U0001f5d1", key=f"del_al2_{a.get('id_alerte','')}"):
+                    delete_alerte(a.get("id_alerte","")); st.rerun()
+        if alertes_p:
+            with st.expander(f"\U0001f4c2 Alertes passees ({len(alertes_p)})"):
+                for a in alertes_p:
+                    c1,c2 = st.columns([10,1])
+                    with c1: st.markdown(f'''<div class="archive-card"><strong>{a.get("chauffeur","")} \u2014 {a.get("type_alerte","")} \u2014 {a.get("date_alerte","")}</strong><br><span style="font-size:0.8rem;color:#6b7280;">{a.get("message","")}</span></div>''', unsafe_allow_html=True)
+                    with c2:
+                        if st.button("\U0001f5d1", key=f"del_alp_{a.get('id_alerte','')}"):
+                            delete_alerte(a.get("id_alerte","")); st.rerun()
+
+
+
+def main():
+    check_auth()
+    st.markdown('<div class="app-header"><div><div class="app-header-logo">Denjean</div><div class="app-header-sub-logo">Artisan du Metal</div></div><div style="width:2px;height:40px;background:#444;border-radius:1px;"></div><div><h1>\U0001f69b Planning Livraisons &amp; Tournees</h1><p>Gestion des livraisons et tournees</p></div></div>',unsafe_allow_html=True)
+    init_livraisons(); df=load_livraisons()
+    tab1,tab2,tab3,tab4=st.tabs(["\U0001f3e0 Tableau de bord","\u2795 Ajouter un trajet","\U0001f4c5 Calendrier","\u26a0\ufe0f Alertes & Attente"])
+    with tab1: onglet_dashboard(df)
+    with tab2: onglet_ajouter()
+    with tab3: onglet_calendrier(df)
+    with tab4: onglet_alertes_attente()
+
+if __name__ == "__main__":
+    main()
