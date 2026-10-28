@@ -141,59 +141,69 @@ def init_livraisons():
         return None
 
 def load_livraisons():
-    import time
-    ws = get_ws("livraisons")
-    if ws is None: return pd.DataFrame()
-    for attempt in range(3):
-        try:
-            data = ws.get_all_records()
-            break
-        except Exception:
-            if attempt < 2:
-                time.sleep(2)
-            else:
-                st.warning("⚠️ Connexion Google Sheets temporairement indisponible. Rechargez la page.")
-                return pd.DataFrame()
-    if not data: return pd.DataFrame()
-    df = pd.DataFrame(data)
-    if "date_livraison" in df.columns:
-        df["date_livraison"] = pd.to_datetime(df["date_livraison"], errors="coerce")
-    for col in ["heure_debut","lieu_depart","lieu_depart_autre","lieu_arrivee","lieu_arrivee_autre"]:
-        if col not in df.columns: df[col] = ""
-    return df
+    ensure_cache()
+    return st.session_state.get("cache_livraisons", pd.DataFrame())
+
 
 def load_taches_terminees():
-    import time
-    ws = get_ws("taches")
-    if ws is None: return pd.DataFrame()
-    for attempt in range(3):
-        try:
-            data = ws.get_all_records()
-            break
-        except Exception:
-            if attempt < 2:
-                time.sleep(2)
-            else:
-                return pd.DataFrame()
-    if not data: return pd.DataFrame()
-    df = pd.DataFrame(data)
-    df.columns = [c.lower().strip() for c in df.columns]
-    col_s = next((c for c in df.columns if "statut" in c), None)
-    if col_s is None: return pd.DataFrame()
-    return df[df[col_s].str.strip().str.lower() == "termine"].copy()
+    ensure_cache()
+    return st.session_state.get("cache_taches", pd.DataFrame())
+
 
 def load_alertes():
+    ensure_cache()
+    return st.session_state.get("cache_alertes", [])
+
+
+
+# ─── CACHE SESSION STATE ──────────────────────────────────────────────────────
+def _fetch_from_sheets():
+    """Charge toutes les données depuis Sheets et les stocke en session_state."""
     import time
-    ws = get_ws("alertes_chauffeurs")
-    if ws is None: return []
-    for attempt in range(3):
-        try:
-            data = ws.get_all_records()
-            return data if data else []
-        except Exception:
-            if attempt < 2:
-                time.sleep(2)
-    return []
+    def safe_get(ws_name):
+        ws = get_ws(ws_name)
+        if ws is None: return []
+        for attempt in range(2):
+            try: return ws.get_all_records()
+            except Exception:
+                if attempt < 1: time.sleep(1)
+        return []
+
+    raw_liv = safe_get("livraisons")
+    if raw_liv:
+        df = pd.DataFrame(raw_liv)
+        if "date_livraison" in df.columns:
+            df["date_livraison"] = pd.to_datetime(df["date_livraison"], errors="coerce")
+        for col in ["heure_debut","lieu_depart","lieu_depart_autre","lieu_arrivee","lieu_arrivee_autre"]:
+            if col not in df.columns: df[col] = ""
+        st.session_state["cache_livraisons"] = df
+    else:
+        if "cache_livraisons" not in st.session_state:
+            st.session_state["cache_livraisons"] = pd.DataFrame()
+
+    raw_alertes = safe_get("alertes_chauffeurs")
+    st.session_state["cache_alertes"] = raw_alertes if raw_alertes else []
+
+    raw_attente = safe_get("trajets_attente")
+    st.session_state["cache_attente"] = raw_attente if raw_attente else []
+
+    raw_taches = safe_get("taches")
+    if raw_taches:
+        df_t = pd.DataFrame(raw_taches)
+        df_t.columns = [c.lower().strip() for c in df_t.columns]
+        col_s = next((c for c in df_t.columns if "statut" in c), None)
+        st.session_state["cache_taches"] = df_t[df_t[col_s].str.strip().str.lower() == "termine"].copy() if col_s else pd.DataFrame()
+    else:
+        if "cache_taches" not in st.session_state:
+            st.session_state["cache_taches"] = pd.DataFrame()
+
+    st.session_state["last_sync"] = datetime.now()
+
+def ensure_cache():
+    """Sync auto toutes les 60s, ou si cache absent."""
+    last = st.session_state.get("last_sync")
+    if last is None or (datetime.now() - last).total_seconds() > 60:
+        _fetch_from_sheets()
 
 def save_alerte(row_data):
     sh = open_sheet()
@@ -212,17 +222,9 @@ def delete_alerte(id_alerte):
             ws.delete_rows(i + 2); break
 
 def load_attente():
-    import time
-    ws = get_ws("trajets_attente")
-    if ws is None: return []
-    for attempt in range(3):
-        try:
-            data = ws.get_all_records()
-            return data if data else []
-        except Exception:
-            if attempt < 2:
-                time.sleep(2)
-    return []
+    ensure_cache()
+    return st.session_state.get("cache_attente", [])
+
 
 def save_attente(row_data):
     sh = open_sheet()
@@ -432,7 +434,7 @@ def form_planif_rapide(affaire, ouvrage, id_tache, key_suffix=""):
                 try: idx_d=opts_dates.index(date_str); date_liv=dates_sem[idx_d].strftime("%Y-%m-%d")
                 except: date_liv=""
             row=[str(uuid.uuid4())[:8],"Livraison ouvrage",id_tache,affaire,ouvrage,lieu_depart,lieu_depart_autre,lieu_arrivee,lieu_arrivee_autre,destination,nom_chantier,f"Livraison {ouvrage}",adresse,contact_nom,contact_tel,date_liv,semaine,heure_debut,heure_fin,camion,"Planifie",commentaire]
-            try: save_trajet(row); st.success(f"Livraison planifiee : {ouvrage} le {date_str}"); st.snow(); st.rerun()
+            try: save_trajet(row); st.session_state["last_sync"]=None; st.success(f"Livraison planifiee : {ouvrage} le {date_str}"); st.snow(); st.rerun()
             except Exception as e: st.error(f"Erreur : {e}")
 
 def generate_day_pdf(date_str, trajets):
@@ -885,7 +887,7 @@ def onglet_ajouter():
                 try: idx_d=opts_dates.index(date_str); date_liv=dates_sem[idx_d].strftime("%Y-%m-%d")
                 except: date_liv=""
             row=[str(uuid.uuid4())[:8],type_trajet_pre,id_tache,affaire,ouvrage,lieu_depart,lieu_depart_autre,lieu_arrivee,lieu_arrivee_autre,destination,nom_chantier,description,adresse,contact_nom,contact_tel,date_liv,semaine,heure_debut,heure_fin,camion,"Planifie",commentaire]
-            try: save_trajet(row); st.success(f"Livraison planifiee le {date_str}"); st.snow(); st.rerun()
+            try: save_trajet(row); st.session_state["last_sync"]=None; st.success(f"Livraison planifiee le {date_str}"); st.snow(); st.rerun()
             except Exception as e: st.error(f"Erreur : {e}")
 
 def onglet_calendrier(df):
@@ -944,7 +946,7 @@ def onglet_alertes_attente():
             message = st.text_area("Message / precision", height=70)
             if st.form_submit_button("Enregistrer l alerte", type="primary", use_container_width=True):
                 row = [str(uuid.uuid4())[:8], chauffeur, str(date_alerte), heure_debut, heure_fin, type_alerte, message]
-                try: save_alerte(row); st.success(f"Alerte enregistree pour {chauffeur} le {date_alerte} !"); st.rerun()
+                try: save_alerte(row); st.session_state["last_sync"]=None; st.success(f"Alerte enregistree pour {chauffeur} le {date_alerte} !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
     alertes = load_alertes()
     if not alertes: st.info("Aucune alerte enregistree.")
@@ -974,7 +976,16 @@ def onglet_alertes_attente():
 def main():
     check_auth()
     st.markdown('<div class="app-header"><div><div class="app-header-logo">Denjean</div><div class="app-header-sub-logo">Artisan du Metal</div></div><div style="width:2px;height:40px;background:#444;border-radius:1px;"></div><div><h1>\U0001f69b Planning Livraisons &amp; Tournees</h1><p>Gestion des livraisons et tournees</p></div></div>',unsafe_allow_html=True)
-    init_livraisons(); df=load_livraisons()
+    init_livraisons()
+    ensure_cache()
+    col_r1, col_r2 = st.columns([8,2])
+    with col_r2:
+        last = st.session_state.get("last_sync")
+        last_str = last.strftime("%H:%M:%S") if last else "—"
+        if st.button(f"\U0001f504 Rafraichir (sync: {last_str})", use_container_width=True):
+            _fetch_from_sheets()
+            st.rerun()
+    df=load_livraisons()
     tab1,tab2,tab3,tab4=st.tabs(["\U0001f3e0 Tableau de bord","\u2795 Ajouter un trajet","\U0001f4c5 Calendrier","\u26a0\ufe0f Alertes & Attente"])
     with tab1: onglet_dashboard(df)
     with tab2: onglet_ajouter()
