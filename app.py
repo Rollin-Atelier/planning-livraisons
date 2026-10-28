@@ -369,7 +369,7 @@ def form_planif_rapide(affaire, ouvrage, id_tache, key_suffix=""):
         commentaire=st.text_area("Commentaire",height=60,key=f"com_{key_suffix}")
         submitted=st.form_submit_button("Enregistrer la livraison",type="primary",use_container_width=True)
     if submitted:
-        if sans_date:
+        if st.session_state.get("sans_date_cb", False):
             row_att = [str(uuid.uuid4())[:8], type_trajet_pre, affaire, ouvrage, lieu_depart, lieu_arrivee,
                        description or f"Livraison {ouvrage}", adresse, contact_nom, contact_tel, camion, commentaire, str(date.today())]
             try:
@@ -787,7 +787,7 @@ def onglet_ajouter():
     with st.form("form_trajet",clear_on_submit=True):
         dates_sem=semaine_to_dates(semaine); opts_dates=[d.strftime("%A %d/%m/%Y").capitalize() for d in dates_sem]
         c3,c4=st.columns(2)
-        if not sans_date:
+        if not st.session_state.get("sans_date_cb", False):
             with c3: date_str=st.selectbox("Jour *",opts_dates) if opts_dates else st.text_input("Date")
             with c4: camion=st.selectbox("Vehicule *",CAMIONS)
             c5,c6=st.columns(2)
@@ -822,18 +822,22 @@ def onglet_ajouter():
         submitted=st.form_submit_button("Enregistrer",type="primary",use_container_width=True)
     if submitted:
         if not description: st.error("La description est obligatoire."); return
-        date_liv=""
-        if dates_sem and date_str:
-            try: idx_d=opts_dates.index(date_str); date_liv=dates_sem[idx_d].strftime("%Y-%m-%d")
-            except: date_liv=""
-        row=[str(uuid.uuid4())[:8],type_trajet_pre,id_tache,affaire,ouvrage,lieu_depart,lieu_depart_autre,lieu_arrivee,lieu_arrivee_autre,destination,nom_chantier,description,adresse,contact_nom,contact_tel,date_liv,semaine,heure_debut,heure_fin,camion,"Planifie",commentaire]
-        try:
-            save_trajet(row)
-            st.success(f"Trajet enregistre : {description}")
-            st.balloons()
-            st.rerun()
-        except Exception as e:
-            st.error(f"Erreur : {e}")
+        if st.session_state.get("sans_date_cb", False):
+            row_att = [str(uuid.uuid4())[:8], type_trajet_pre, affaire, ouvrage, lieu_depart, lieu_arrivee,
+                       description, adresse, contact_nom, contact_tel, camion, commentaire, str(date.today())]
+            try:
+                save_attente(row_att)
+                st.success(f"Trajet enregistre en attente de date : {description}")
+                st.balloons(); st.rerun()
+            except Exception as e: st.error(f"Erreur : {e}")
+        else:
+            date_liv=""
+            if dates_sem and date_str:
+                try: idx_d=opts_dates.index(date_str); date_liv=dates_sem[idx_d].strftime("%Y-%m-%d")
+                except: date_liv=""
+            row=[str(uuid.uuid4())[:8],type_trajet_pre,id_tache,affaire,ouvrage,lieu_depart,lieu_depart_autre,lieu_arrivee,lieu_arrivee_autre,destination,nom_chantier,description,adresse,contact_nom,contact_tel,date_liv,semaine,heure_debut,heure_fin,camion,"Planifie",commentaire]
+            try: save_trajet(row); st.success(f"Livraison planifiee le {date_str}"); st.balloons(); st.rerun()
+            except Exception as e: st.error(f"Erreur : {e}")
 
 def onglet_calendrier(df):
     st.markdown("### \U0001f4c5 Calendrier de la semaine")
