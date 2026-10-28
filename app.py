@@ -140,6 +140,10 @@ FOURNISSEURS = {
     "ZINQ LOIRE (France GALVA)": {"adresse": "801 Rue de la Rive, 42320 La Grand-Croix", "tel": "04 77 73 52 07"},
 }
 
+# Dictionnaire inversé pour retrouver le nom depuis l'adresse
+ADRESSE_TO_FOURNISSEUR = {v["adresse"].lower().strip(): k for k, v in FOURNISSEURS.items() if k != "— Saisie manuelle —"}
+
+
 
 def cam_color(cam, key="dark"):
     return CAMION_COLORS.get(cam, CAMION_DEFAULT)[key]
@@ -384,6 +388,9 @@ def card_html(row, archive=False):
         import urllib.parse
         adr_enc = urllib.parse.quote(adr)
         parts.append(f'\U0001f4cc {adr} &nbsp; <a href="https://maps.google.com/?q={adr_enc}" target="_blank" style="color:#f97316;text-decoration:none;font-weight:600;">🗺️ Maps</a> &nbsp; <a href="https://waze.com/ul?q={adr_enc}" target="_blank" style="color:#00bcd4;text-decoration:none;font-weight:600;">🚗 Waze</a>')
+        nom_fourn = ADRESSE_TO_FOURNISSEUR.get(adr.lower().strip())
+        if nom_fourn:
+            parts.append(f'<span style="font-weight:600;color:#f97316;">🏭 {nom_fourn}</span>')
     if cnt: parts.append(f"\U0001f464 {cnt}")
     cam_html = cam_badge_html(cam) if cam and not archive else (f"\U0001f69a {cam}" if cam else "")
     if cam and not archive:
