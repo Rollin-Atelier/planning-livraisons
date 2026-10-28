@@ -697,8 +697,13 @@ def onglet_ajouter():
             try: idx_d=opts_dates.index(date_str); date_liv=dates_sem[idx_d].strftime("%Y-%m-%d")
             except: date_liv=""
         row=[str(uuid.uuid4())[:8],type_trajet_pre,id_tache,affaire,ouvrage,lieu_depart,lieu_depart_autre,lieu_arrivee,lieu_arrivee_autre,destination,nom_chantier,description,adresse,contact_nom,contact_tel,date_liv,semaine,heure_debut,heure_fin,camion,"Planifie",commentaire]
-        try: save_trajet(row); st.success(f"Trajet enregistre : {description}"); st.balloons()
-        except Exception as e: st.error(f"Erreur : {e}")
+        try:
+            save_trajet(row)
+            st.success(f"Trajet enregistre : {description}")
+            st.balloons()
+            st.rerun()
+        except Exception as e:
+            st.error(f"Erreur : {e}")
 
 def onglet_calendrier(df):
     st.markdown("### \U0001f4c5 Calendrier de la semaine")
