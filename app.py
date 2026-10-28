@@ -104,6 +104,42 @@ HEADER_ALERTES = ["id_alerte","chauffeur","date_alerte","heure_debut","heure_fin
 HEADER_ATTENTE = ["id_attente","type_trajet","affaire","ouvrage","lieu_depart","lieu_arrivee","description","adresse","contact_nom","contact_tel","camion","commentaire","created"]
 TYPES_ALERTE = ["Conge", "RDV medical", "Depart anticipe", "Absent", "Autre"]
 CHAUFFEURS = ["Christophe"]
+FOURNISSEURS = {
+    "— Saisie manuelle —": {"adresse": "", "tel": ""},
+    "ACSJ MÉTAL": {"adresse": "497 Rue de l'Industrie, 01480 Jassans Riottier", "tel": "04 74 60 07 74"},
+    "ALPHA PLIAGE": {"adresse": "560 Rue de la Maison Rose, 69440 Mornant", "tel": "04 78 07 26 55"},
+    "ALU2S": {"adresse": "47 Rue Jean Jaurès, 42190 Charlieu", "tel": "06 19 07 59 10"},
+    "AU FAITE": {"adresse": "12 Bis Allée Marc Seguin, 69200 Venissieux", "tel": "04 78 70 73 33"},
+    "ATV": {"adresse": "8 Rue de l'Hormet, 42160 Saint Cyprien", "tel": "04 77 36 90 06"},
+    "BERTHET ACIER – CMF": {"adresse": "22 Rue de Fos Sur Mer, 69007 Lyon", "tel": "07 78 61 26 71"},
+    "BVL Serrulac": {"adresse": "Chemin du Favier, 69230 Saint Genis Laval", "tel": "04 72 39 37 37"},
+    "CMCB": {"adresse": "18 Rue Vorlat, 69290 Saint Genis les Ollières", "tel": "06 85 77 68 19"},
+    "CORNE": {"adresse": "41-43 Rue Roger Salengro, 69200 Vénissieux", "tel": "04 78 75 84 66"},
+    "DESCASYSTEM": {"adresse": "174 Avenue de Pressensé, 69200 Vénissieux", "tel": "04 78 78 50 50"},
+    "DEVILLE": {"adresse": "10 Allée de Batailloux, 42680 Saint Marcellin en Forez", "tel": "04 77 36 22 48"},
+    "EJ MÉTALLERIE": {"adresse": "3 Chemin de Volpate, 42800 Dargoire", "tel": "07 65 89 66 13"},
+    "EKOALU": {"adresse": "Route de Quincieux, 69380 Chasselay", "tel": "04 37 50 36 36"},
+    "INSTALLUX": {"adresse": "Chemin du Bois Rond, 69720 Saint Bonnet de Mure", "tel": "04 72 48 31 31"},
+    "KLOECKNER METALS (KDI)": {"adresse": "6 Rue Henri Becquerel, 69740 Genas", "tel": "04 78 20 62 02"},
+    "L'IDÉE BOIS": {"adresse": "61 Rue Lucette et René Desgrand, 69100 Villeurbanne", "tel": "06 29 85 14 01"},
+    "LOUBIER": {"adresse": "14 Rue Léon Blum, 69320 Feyzin", "tel": "04 72 89 33 40"},
+    "OD FER": {"adresse": "11 Allée du Manipan, 69590 Saint Symphorien sur Coise", "tel": "07 61 38 41 50"},
+    "ODS": {"adresse": "Route de Feurs, 42360 Panissières", "tel": "04 28 53 00 55"},
+    "MITS / CMD": {"adresse": "28 Rue des 2 Vallées, 69670 Vaugneray", "tel": "04 78 45 87 17"},
+    "PIA GAZIL": {"adresse": "231 Rue Général de Gaulle, 69530 Brignais", "tel": "04 78 05 04 03"},
+    "PROLIANS (DESCOURS)": {"adresse": "173 Avenue de Pressensé, 69200 Vénissieux", "tel": "04 78 77 12 12"},
+    "PSEP": {"adresse": "18 Rue des Forges, 69290 Grézieu la Varenne", "tel": "04 78 56 69 85"},
+    "RAVOUX": {"adresse": "ZI des Platières, 69440 Mornant", "tel": "06 21 42 16 53"},
+    "RÉCA": {"adresse": "163 Avenue Franklin Roosevelt, 69150 Décines Charpieu", "tel": "04 37 24 10 10"},
+    "SOPRANZI GALVA": {"adresse": "5 Rue Eugène Hénaff, 69200 Vénissieux", "tel": "04 72 50 32 28"},
+    "SP COATING": {"adresse": "20 Rue Paul et Marc Barbezat, 69150 Décines Charpieu", "tel": "04 78 23 29 79"},
+    "TECH79": {"adresse": "38 B Rue de la Grande Croix, 69770 Villecheneve", "tel": "06 03 15 66 39"},
+    "TECHNOMAT": {"adresse": "5 Rue de l'Avenir, 69740 Genas", "tel": "04 78 51 71 53"},
+    "THIVILLON": {"adresse": "604 Chemin de la Rosette, 69440 Taluyers", "tel": "04 78 48 26 60"},
+    "VALLET CINTRAGE": {"adresse": "855 Rue de l'Industrie, 01390 Saint André de Corcy", "tel": "04 72 12 17 17"},
+    "ZINQ LOIRE (France GALVA)": {"adresse": "801 Rue de la Rive, 42320 La Grand-Croix", "tel": "04 77 73 52 07"},
+}
+
 
 def cam_color(cam, key="dark"):
     return CAMION_COLORS.get(cam, CAMION_DEFAULT)[key]
@@ -425,7 +461,13 @@ def form_planif_rapide(affaire, ouvrage, id_tache, key_suffix=""):
             lieu_arrivee=st.selectbox("Lieu d arrivee",LIEUX_ARRIVEE,key=f"larr_{key_suffix}")
             lieu_arrivee_autre=st.text_input("Preciser l arrivee",key=f"larr_a_{key_suffix}") if lieu_arrivee=="Autre" else ""
         nom_chantier=st.text_input("Nom du chantier",key=f"ch_{key_suffix}") if destination=="Chantier" else ""
-        adresse=st.text_input("Adresse",key=f"adr_{key_suffix}")
+        fournisseur_sel=st.selectbox("Fournisseur (optionnel)",list(FOURNISSEURS.keys()),key=f"fourn_{key_suffix}")
+        if fournisseur_sel != "— Saisie manuelle —":
+            adr_default = FOURNISSEURS[fournisseur_sel]["adresse"]
+            tel_default = FOURNISSEURS[fournisseur_sel]["tel"]
+        else:
+            adr_default = ""; tel_default = ""
+        adresse=st.text_input("Adresse",value=adr_default,key=f"adr_{key_suffix}")
         contact_nom=st.text_input("Contact sur place",key=f"cnt_{key_suffix}")
         contact_tel=st.text_input("Telephone",key=f"tel_{key_suffix}")
         commentaire=st.text_area("Commentaire",height=60,key=f"com_{key_suffix}")
@@ -676,6 +718,31 @@ def generate_day_pdf(date_str, trajets):
     buf.seek(0)
     return buf.read()
 
+
+def onglet_fournisseurs():
+    st.markdown("### 🏭 Répertoire fournisseurs")
+    import urllib.parse
+    recherche = st.text_input("🔍 Rechercher un fournisseur", placeholder="Nom, ville, adresse...")
+    fournisseurs_list = {k: v for k, v in FOURNISSEURS.items() if k != "— Saisie manuelle —"}
+    if recherche:
+        fournisseurs_list = {k: v for k, v in fournisseurs_list.items()
+                             if recherche.lower() in k.lower() or recherche.lower() in v["adresse"].lower()}
+    if not fournisseurs_list:
+        st.info("Aucun fournisseur trouvé.")
+        return
+    for nom, info in fournisseurs_list.items():
+        adr = info["adresse"]; tel = info["tel"]
+        adr_enc = urllib.parse.quote(adr)
+        maps_link = f'<a href="geo:0,0?q={adr_enc}" style="color:#f97316;font-weight:600;text-decoration:none;">🗺️ Maps</a>'
+        waze_link = f'<a href="waze://?q={adr_enc}&navigate=yes" style="color:#00bcd4;font-weight:600;text-decoration:none;">🚗 Waze</a>'
+        tel_link  = f'<a href="tel:{tel.replace(" ","")}" style="color:#1a2340;text-decoration:none;">📞 {tel}</a>' if tel else ""
+        st.markdown(f"""<div class="card" style="border-left-color:#f97316;margin-bottom:6px;">
+            <div style="font-weight:700;font-size:1rem;color:#1a2340;margin-bottom:4px;">🏭 {nom}</div>
+            <div style="font-size:0.85rem;color:#555;line-height:2;">
+                📌 {adr} &nbsp;&nbsp; {maps_link} &nbsp; {waze_link}<br>
+                {tel_link}
+            </div></div>""", unsafe_allow_html=True)
+
 def check_auth():
     if "auth" not in st.session_state: st.session_state.auth=False
     if not st.session_state.auth:
@@ -869,7 +936,14 @@ def onglet_ajouter():
             cm1,cm2=st.columns(2)
             with cm1: affaire=st.text_input("Chantier / Affaire")
             with cm2: ouvrage=st.text_input("Ouvrage")
-        description=st.text_input("Description / Objet du trajet *"); adresse=st.text_input("Adresse")
+        description=st.text_input("Description / Objet du trajet *")
+        fournisseur_aj=st.selectbox("Fournisseur (optionnel)",list(FOURNISSEURS.keys()),key="fourn_aj")
+        if fournisseur_aj != "— Saisie manuelle —":
+            adr_aj_default = FOURNISSEURS[fournisseur_aj]["adresse"]
+            tel_aj_default = FOURNISSEURS[fournisseur_aj]["tel"]
+        else:
+            adr_aj_default = ""; tel_aj_default = ""
+        adresse=st.text_input("Adresse",value=adr_aj_default)
         c7,c8=st.columns(2)
         with c7: contact_nom=st.text_input("Contact sur place")
         with c8: contact_tel=st.text_input("Telephone")
@@ -996,11 +1070,12 @@ def main():
             _fetch_from_sheets()
             st.rerun()
     df=load_livraisons()
-    tab1,tab2,tab3,tab4=st.tabs(["\U0001f3e0 Tableau de bord","\u2795 Ajouter un trajet","\U0001f4c5 Calendrier","\u26a0\ufe0f Alertes & Attente"])
+    tab1,tab2,tab3,tab4,tab5=st.tabs(["\U0001f3e0 Tableau de bord","\u2795 Ajouter un trajet","\U0001f4c5 Calendrier","\u26a0\ufe0f Alertes & Attente","\U0001f3ed Fournisseurs"])
     with tab1: onglet_dashboard(df)
     with tab2: onglet_ajouter()
     with tab3: onglet_calendrier(df)
     with tab4: onglet_alertes_attente()
+    with tab5: onglet_fournisseurs()
 
 if __name__ == "__main__":
     main()
