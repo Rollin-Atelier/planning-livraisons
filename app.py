@@ -393,6 +393,8 @@ def card_html(row, archive=False):
         if nom_fourn:
             parts.append(f'<span style="font-weight:600;color:#f97316;">🏭 {nom_fourn}</span>')
     if cnt: parts.append(f"\U0001f464 {cnt}")
+    comm = str(row.get("commentaire","") or "").strip()
+    if comm: parts.append(f"\U0001f4ac {comm}")
     cam_html = cam_badge_html(cam) if cam and not archive else (f"\U0001f69a {cam}" if cam else "")
     if cam and not archive:
         parts.append(f"\U0001f69a {cam_badge_html(cam)}")
