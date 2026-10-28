@@ -347,7 +347,7 @@ def card_html(row, archive=False):
     if adr:
         import urllib.parse
         adr_enc = urllib.parse.quote(adr)
-        parts.append(f'\U0001f4cc <a href="https://maps.google.com/?q={adr_enc}" target="_blank" style="color:#f97316;text-decoration:none;">{adr} 🗺️</a>')
+        parts.append(f'\U0001f4cc {adr} &nbsp; <a href="https://maps.google.com/?q={adr_enc}" target="_blank" style="color:#f97316;text-decoration:none;font-weight:600;">🗺️ Maps</a> &nbsp; <a href="https://waze.com/ul?q={adr_enc}" target="_blank" style="color:#00bcd4;text-decoration:none;font-weight:600;">🚗 Waze</a>')
     if cnt: parts.append(f"\U0001f464 {cnt}")
     cam_html = cam_badge_html(cam) if cam and not archive else (f"\U0001f69a {cam}" if cam else "")
     if cam and not archive:
