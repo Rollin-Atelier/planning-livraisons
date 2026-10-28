@@ -260,12 +260,12 @@ def planifier_depuis_attente(id_att, date_liv, semaine, heure_debut, heure_fin, 
 def save_trajet(row_data):
     ws = get_ws("livraisons") or init_livraisons()
     ws.append_row(row_data)
-    load_livraisons.clear()
+    st.session_state["last_sync"] = None
 
 def do_update_statut(ws, row_idx, new_statut):
     col_idx = HEADER_LIVRAISONS.index("statut") + 1
     ws.update_cell(row_idx + 2, col_idx, new_statut)
-    load_livraisons.clear()
+    st.session_state["last_sync"] = None
 
 def do_update_full(ws, row_idx, new_statut, new_date, new_hd, new_hf, new_cam, new_type=None, new_comment=None):
     row_num = row_idx + 2
@@ -275,11 +275,11 @@ def do_update_full(ws, row_idx, new_statut, new_date, new_hd, new_hf, new_cam, n
     for field, val in fields:
         col_idx = HEADER_LIVRAISONS.index(field) + 1
         ws.update_cell(row_num, col_idx, val)
-    load_livraisons.clear()
+    st.session_state["last_sync"] = None
 
 def do_delete_trajet(ws, row_idx):
     ws.delete_rows(row_idx + 2)
-    load_livraisons.clear()
+    st.session_state["last_sync"] = None
 
 def get_semaines(n=12):
     today  = date.today()
