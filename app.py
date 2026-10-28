@@ -98,20 +98,27 @@ CHAUFFEURS = ["Christophe"]
 def cam_color(cam, key="dark"):
     return CAMION_COLORS.get(cam, CAMION_DEFAULT)[key]
 
-@st.cache_resource(ttl=300)
 def get_client():
     info = dict(st.secrets["gcp_service_account"])
     info["private_key"] = info["private_key"].replace("\\n","\n")
     creds = Credentials.from_service_account_info(info, scopes=SCOPES)
     return gspread.authorize(creds)
 
-@st.cache_resource(ttl=300)
 def open_sheet():
     return get_client().open_by_url(SHEET_URL)
 
 def get_ws(name):
-    try:    return open_sheet().worksheet(name)
-    except gspread.WorksheetNotFound: return None
+    import time
+    for attempt in range(3):
+        try:
+            return open_sheet().worksheet(name)
+        except gspread.WorksheetNotFound:
+            return None
+        except Exception:
+            if attempt < 2:
+                time.sleep(2)
+            else:
+                return None
 
 def init_livraisons():
     if st.session_state.get("livraisons_init_done"):
@@ -133,7 +140,6 @@ def init_livraisons():
         st.warning(f"Connexion Google Sheets en cours... ({e})")
         return None
 
-@st.cache_data(ttl=30)
 def load_livraisons():
     ws = get_ws("livraisons")
     if ws is None: return pd.DataFrame()
