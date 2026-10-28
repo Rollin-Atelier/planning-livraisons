@@ -30,6 +30,7 @@ st.markdown("""
 .card-autre { border-left-color: #ea580c; }
 .card-divers { border-left-color: #6b7280; }
 .card-titre { font-weight: 600; font-size: 0.95rem; margin-bottom: 4px; }
+.card-desc { font-weight: 700; font-size: 1.05rem; color: #1a2340; margin: 5px 0 4px 0; line-height: 1.3; }
 .card-detail { font-size: 0.82rem; color: #555; line-height: 1.7; }
 .badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 0.72rem; font-weight: 600; margin-right: 6px; }
 .badge-planifie { background: #dbeafe; color: #1d4ed8; }
@@ -344,7 +345,8 @@ def card_html(row, archive=False):
         parts.append(f"\U0001f69a {cam_badge_html(cam)}")
     elif cam:
         parts.append(f"\U0001f69a {cam}")
-    return f'<div class="{cc}" style="{border_style}"><div class="card-titre"><span class="badge {bc}">{typ}</span><span class="badge {sc}">{stat}</span> {desc}</div><div class="card-detail">{"<br>".join(parts)}</div></div>'
+    desc_html = f'<div class="card-desc">{desc}</div>' if desc else ''
+    return f'<div class="{cc}" style="{border_style}"><div class="card-titre"><span class="badge {bc}">{typ}</span><span class="badge {sc}">{stat}</span></div>{desc_html}<div class="card-detail">{"<br>".join(parts)}</div></div>'
 
 def legende_camions_html():
     items = ""
