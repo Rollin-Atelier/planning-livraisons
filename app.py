@@ -854,7 +854,7 @@ def onglet_calendrier(df):
     dates_sem=semaine_to_dates(semaine)
     if not dates_sem: st.error("Semaine invalide."); return
     today=date.today()
-    df_sem=df[df["semaine"]==semaine].copy() if not df.empty and "semaine" in df.columns else pd.DataFrame()
+    df_sem=df[df["date_livraison"].dt.date.between(dates_sem[0],dates_sem[4])].copy() if not df.empty and "date_livraison" in df.columns else pd.DataFrame()
     nb=len(df_sem); d0=dates_sem[0].strftime("%d/%m/%Y"); d4=dates_sem[4].strftime("%d/%m/%Y")
     st.markdown(f'<div style="background:white;border-radius:10px;padding:12px 18px;margin-bottom:8px;border-left:5px solid #f97316;"><strong>Semaine {semaine}</strong> &nbsp;|&nbsp; {d0} au {d4} &nbsp;|&nbsp; <strong>{nb} trajet(s)</strong></div>',unsafe_allow_html=True)
     st.markdown(legende_camions_html(), unsafe_allow_html=True)
