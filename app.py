@@ -317,11 +317,12 @@ def do_update_statut(ws, row_idx, new_statut):
     ws.update_cell(row_idx + 2, col_idx, new_statut)
     st.session_state["last_sync"] = None
 
-def do_update_full(ws, row_idx, new_statut, new_date, new_hd, new_hf, new_cam, new_type=None, new_comment=None):
+def do_update_full(ws, row_idx, new_statut, new_date, new_hd, new_hf, new_cam, new_type=None, new_comment=None, new_desc=None):
     row_num = row_idx + 2
     fields = [("statut",new_statut),("date_livraison",str(new_date) if new_date else ""),("heure_debut",new_hd),("heure_fin",new_hf),("camion",new_cam)]
     if new_type is not None: fields.append(("type_trajet", new_type))
     if new_comment is not None: fields.append(("commentaire", new_comment))
+    if new_desc is not None: fields.append(("description", new_desc))
     for field, val in fields:
         col_idx = HEADER_LIVRAISONS.index(field) + 1
         ws.update_cell(row_num, col_idx, val)
@@ -430,12 +431,13 @@ def trajet_avec_menu(row, ws, all_rows, key_prefix=""):
             type_actuel=str(row.get("type_trajet",""))
             idx_type=TYPES_TRAJET.index(type_actuel) if type_actuel in TYPES_TRAJET else 0
             new_type=st.selectbox("Type de trajet",TYPES_TRAJET,index=idx_type,key=f"pop_type_{key_prefix}_{id_t}")
+            new_desc=st.text_input("Description / Objet du trajet",value=str(row.get("description","") or ""),key=f"pop_desc_{key_prefix}_{id_t}")
             new_comment=st.text_area("Commentaire",value=str(row.get("commentaire","") or ""),key=f"pop_com_{key_prefix}_{id_t}",height=80)
             if st.button("Valider",key=f"pop_ok_{key_prefix}_{id_t}",use_container_width=True,type="primary"):
                 if ws:
                     for ri,r in enumerate(all_rows):
                         if str(r.get("id_trajet",""))==id_t:
-                            do_update_full(ws,ri,new_stat,new_date,new_hd,new_hf,new_cam,new_type,new_comment)
+                            do_update_full(ws,ri,new_stat,new_date,new_hd,new_hf,new_cam,new_type,new_comment,new_desc)
                             st.success("Mis a jour !"); st.rerun(); break
             st.markdown("---")
             if st.button("\U0001f5d1 Supprimer",key=f"pop_del_{key_prefix}_{id_t}",use_container_width=True):
