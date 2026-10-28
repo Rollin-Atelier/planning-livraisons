@@ -75,6 +75,15 @@ LIEUX_ARRIVEE = ["Atelier","Peinture","Galvanisation","Chantier","Autre"]
 CAMIONS       = ["Camion Denjean","Camion poseur","Camion Agenov","Camion autre Semi","Camion Kangoo"]
 STATUTS       = ["Planifie","Livre","Reporte"]
 JOURS_FR      = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi"]
+JOURS_FR2     = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"]
+
+def fr_date_label(d):
+    """Retourne ex: 'Lundi 28/10/2026' en français. Accepte date ou Timestamp pandas."""
+    if hasattr(d, 'date') and callable(d.date):
+        d = d.date()
+    return f"{JOURS_FR2[d.weekday()]} {d.strftime('%d/%m/%Y')}"
+
+
 
 # Couleurs par camion (dark pour badge/PDF, light pour fond carte)
 CAMION_COLORS = {
@@ -454,17 +463,6 @@ def generate_day_pdf(date_str, trajets):
 
     try:    d = dt2.date.fromisoformat(date_str)
     except: d = dt2.date.today()
-
-    JOURS_FR2 = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"]
-MOIS_FR_COURT = ["","jan","fév","mar","avr","mai","juin","juil","août","sep","oct","nov","déc"]
-
-def fr_date_label(d):
-    """Retourne ex: 'Lundi 28/10/2026' en français. Accepte date ou Timestamp."""
-    import pandas as _pd
-    if hasattr(d, 'date') and callable(d.date):
-        d = d.date()
-    return f"{JOURS_FR2[d.weekday()]} {d.strftime('%d/%m/%Y')}"
-
 
     MOIS_FR  = {1:"janvier",2:"fevrier",3:"mars",4:"avril",5:"mai",6:"juin",
                 7:"juillet",8:"aout",9:"septembre",10:"octobre",11:"novembre",12:"decembre"}
