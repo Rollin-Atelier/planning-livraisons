@@ -459,7 +459,10 @@ def generate_day_pdf(date_str, trajets):
 MOIS_FR_COURT = ["","jan","fév","mar","avr","mai","juin","juil","août","sep","oct","nov","déc"]
 
 def fr_date_label(d):
-    """Retourne ex: 'Lundi 28/10/2026' en français."""
+    """Retourne ex: 'Lundi 28/10/2026' en français. Accepte date ou Timestamp."""
+    import pandas as _pd
+    if hasattr(d, 'date') and callable(d.date):
+        d = d.date()
     return f"{JOURS_FR2[d.weekday()]} {d.strftime('%d/%m/%Y')}"
 
 
