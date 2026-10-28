@@ -67,7 +67,7 @@ st.markdown("""
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets","https://www.googleapis.com/auth/drive"]
 SHEET_URL    = "https://docs.google.com/spreadsheets/d/1KbS5fA33r6o1isdXdT_dWZMDIgtbAG17t0TKa9bdDpw"
 MOT_DE_PASSE = "atelier2026"
-TYPES_TRAJET  = ["Livraison ouvrage","Enlevement / Collecte","Livraison autre","Trajet divers"]
+TYPES_TRAJET  = ["Livraison ouvrage","Enlevement / Collecte","Livraison autre","Chargement pour lendemain","Trajet divers"]
 DESTINATIONS  = ["Peinture","Galvanisation","Chantier","Autre"]
 LIEUX_DEPART  = ["Atelier","Peinture","Galvanisation","Chantier","Autre"]
 LIEUX_ARRIVEE = ["Atelier","Peinture","Galvanisation","Chantier","Autre"]
@@ -226,9 +226,12 @@ def do_update_statut(ws, row_idx, new_statut):
     ws.update_cell(row_idx + 2, col_idx, new_statut)
     load_livraisons.clear()
 
-def do_update_full(ws, row_idx, new_statut, new_date, new_hd, new_hf, new_cam):
+def do_update_full(ws, row_idx, new_statut, new_date, new_hd, new_hf, new_cam, new_type=None, new_comment=None):
     row_num = row_idx + 2
-    for field, val in [("statut",new_statut),("date_livraison",str(new_date) if new_date else ""),("heure_debut",new_hd),("heure_fin",new_hf),("camion",new_cam)]:
+    fields = [("statut",new_statut),("date_livraison",str(new_date) if new_date else ""),("heure_debut",new_hd),("heure_fin",new_hf),("camion",new_cam)]
+    if new_type is not None: fields.append(("type_trajet", new_type))
+    if new_comment is not None: fields.append(("commentaire", new_comment))
+    for field, val in fields:
         col_idx = HEADER_LIVRAISONS.index(field) + 1
         ws.update_cell(row_num, col_idx, val)
     load_livraisons.clear()
@@ -245,7 +248,7 @@ def get_semaines(n=12):
 def semaine_to_dates(s):
     try:
         parts = s.replace("S","").split("-")
-        monday = datetime.strptime(f"{parts[1]}-W{int(parts[0]):02d}-1","%Y-W%W-%w").date()
+        monday = datetime.strptime(f"{parts[1]}-W{int(parts[0]):02d}-1","%G-W%V-%u").date()
         return [monday+timedelta(days=i) for i in range(5)]
     except: return []
 
@@ -326,11 +329,15 @@ def trajet_avec_menu(row, ws, all_rows, key_prefix=""):
             new_hd=st.selectbox("Heure debut",heures,index=idx_hd,key=f"pop_hd_{key_prefix}_{id_t}")
             new_hf=st.selectbox("Heure fin",heures,index=idx_hf,key=f"pop_hf_{key_prefix}_{id_t}")
             new_cam=st.selectbox("Vehicule",CAMIONS,index=idx_cam,key=f"pop_cam_{key_prefix}_{id_t}")
+            type_actuel=str(row.get("type_trajet",""))
+            idx_type=TYPES_TRAJET.index(type_actuel) if type_actuel in TYPES_TRAJET else 0
+            new_type=st.selectbox("Type de trajet",TYPES_TRAJET,index=idx_type,key=f"pop_type_{key_prefix}_{id_t}")
+            new_comment=st.text_area("Commentaire",value=str(row.get("commentaire","") or ""),key=f"pop_com_{key_prefix}_{id_t}",height=80)
             if st.button("Valider",key=f"pop_ok_{key_prefix}_{id_t}",use_container_width=True,type="primary"):
                 if ws:
                     for ri,r in enumerate(all_rows):
                         if str(r.get("id_trajet",""))==id_t:
-                            do_update_full(ws,ri,new_stat,new_date,new_hd,new_hf,new_cam)
+                            do_update_full(ws,ri,new_stat,new_date,new_hd,new_hf,new_cam,new_type,new_comment)
                             st.success("Mis a jour !"); st.rerun(); break
             st.markdown("---")
             if st.button("\U0001f5d1 Supprimer",key=f"pop_del_{key_prefix}_{id_t}",use_container_width=True):
