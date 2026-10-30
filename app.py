@@ -149,6 +149,7 @@ ADRESSE_TO_FOURNISSEUR = {v["adresse"].lower().strip(): k for k, v in FOURNISSEU
 def cam_color(cam, key="dark"):
     return CAMION_COLORS.get(cam, CAMION_DEFAULT)[key]
 
+@st.cache_resource(ttl=3600)
 def get_client():
     info = dict(st.secrets["gcp_service_account"])
     info["private_key"] = info["private_key"].replace("\\n","\n")
@@ -253,7 +254,7 @@ def _fetch_from_sheets():
 def ensure_cache():
     """Sync auto toutes les 60s, ou si cache absent."""
     last = st.session_state.get("last_sync")
-    if last is None or (datetime.now() - last).total_seconds() > 60:
+    if last is None or (datetime.now() - last).total_seconds() > 300:
         _fetch_from_sheets()
 
 def save_alerte(row_data):
@@ -787,7 +788,7 @@ def onglet_dashboard(df):
         with col: st.markdown(f'<div class="stat-card"><div class="stat-num">{num}</div><div class="stat-label">{label}</div></div>',unsafe_allow_html=True)
     st.markdown("---")
     st.markdown(legende_camions_html(), unsafe_allow_html=True)
-    ws=get_ws("livraisons"); all_rows=ws.get_all_records() if ws else []
+    ws=get_ws("livraisons"); all_rows=load_livraisons().to_dict("records")
     st.markdown("### \U0001f7e2 Ouvrages termines \u2014 prets a expedier")
     taches_df=load_taches_terminees()
     if not taches_df.empty:
@@ -1021,7 +1022,7 @@ def onglet_calendrier(df):
                     )
     st.markdown("---"); st.markdown("### \U0001f4cb Detail de la semaine")
     if df_sem.empty: st.info("Aucun trajet cette semaine."); return
-    ws=get_ws("livraisons"); all_rows=ws.get_all_records() if ws else []
+    ws=get_ws("livraisons"); all_rows=load_livraisons().to_dict("records")
     for i,d in enumerate(dates_sem):
         df_jour=df_sem[df_sem["date_livraison"].dt.date==d].sort_values("heure_debut") if not df_sem.empty and "date_livraison" in df_sem.columns else pd.DataFrame()
         if df_jour.empty: continue
