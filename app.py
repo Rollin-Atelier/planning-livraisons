@@ -380,7 +380,7 @@ def card_html(row, archive=False):
     bc = TYPE_BADGE.get(typ,"badge-td")
     sc = "badge-archive" if archive else STATUT_BADGE.get(stat,"badge-planifie")
     parts=[]
-    if lieu_dep_label and lieu_arr_label: parts.append(f"\U0001f4cd {lieu_dep_label} \u2192 {lieu_arr_label}")
+    if lieu_dep_label and lieu_arr_label: parts.append(f"\U0001f4cd {html_lib.escape(lieu_dep_label)} \u2192 {html_lib.escape(lieu_arr_label)}")
     elif lieu_dep_label: parts.append(f"\U0001f4cd Depart : {lieu_dep_label}")
     elif lieu_arr_label: parts.append(f"\U0001f4cd Arrivee : {lieu_arr_label}")
     if affaire and typ=="Livraison ouvrage": parts.append(f"\U0001f3d7\ufe0f {affaire}")
@@ -392,15 +392,15 @@ def card_html(row, archive=False):
         nom_fourn = ADRESSE_TO_FOURNISSEUR.get(adr.lower().strip())
         if nom_fourn:
             parts.append(f'<span style="font-weight:600;color:#f97316;">🏭 {nom_fourn}</span>')
-    if cnt: parts.append(f"\U0001f464 {cnt}")
+    if cnt: parts.append(f"\U0001f464 {html_lib.escape(cnt)}")
     comm = str(row.get("commentaire","") or "").strip()
-    if comm: parts.append(f"\U0001f4ac {comm}")
+    if comm: parts.append(f"\U0001f4ac {html_lib.escape(comm)}")
     cam_html = cam_badge_html(cam) if cam and not archive else (f"\U0001f69a {cam}" if cam else "")
     if cam and not archive:
         parts.append(f"\U0001f69a {cam_badge_html(cam)}")
     elif cam:
         parts.append(f"\U0001f69a {cam}")
-    desc_html = f'<div class="card-desc">{desc}</div>' if desc else ''
+    desc_html = f'<div class="card-desc">{html_lib.escape(desc)}</div>' if desc else ''
     return f'<div class="{cc}" style="{border_style}"><div class="card-titre"><span class="badge {bc}">{typ}</span><span class="badge {sc}">{stat}</span></div>{desc_html}<div class="card-detail">{"<br>".join(parts)}</div></div>'
 
 def legende_camions_html():
@@ -826,7 +826,7 @@ def onglet_dashboard(df):
             plage = f"{hd} -> {hf}" if hd and hf else hd or ""
             c1, c2 = st.columns([10, 1])
             with c1:
-                st.markdown(f'''<div class="alerte-card"><div class="alerte-titre">\u26a0\ufe0f {a.get("chauffeur","")} \u2014 {a.get("type_alerte","")} \u2014 {a.get("date_alerte","")}{" · " + plage if plage else ""}</div><div class="alerte-detail">{a.get("message","")}</div></div>''', unsafe_allow_html=True)
+                st.markdown(f'''<div class="alerte-card"><div class="alerte-titre">\u26a0\ufe0f {html_lib.escape(str(a.get("chauffeur","")))} \u2014 {html_lib.escape(str(a.get("type_alerte","")))} \u2014 {html_lib.escape(str(a.get("date_alerte","")))}{" · " + plage if plage else ""}</div><div class="alerte-detail">{html_lib.escape(str(a.get("message","")))}</div></div>''', unsafe_allow_html=True)
             with c2:
                 if st.button("\U0001f5d1", key=f"del_alerte_{a.get('id_alerte','')}"):
                     delete_alerte(a.get("id_alerte","")); st.rerun()
@@ -840,7 +840,7 @@ def onglet_dashboard(df):
             id_att = str(a.get("id_attente",""))
             c1, c2 = st.columns([8, 3])
             with c1:
-                st.markdown(f'''<div class="attente-card"><div class="attente-titre">\U0001f550 {a.get("affaire","")} \u2014 {a.get("ouvrage","") or a.get("description","")}</div><div class="attente-detail">\U0001f69b {a.get("camion","") or "Vehicule non defini"} &nbsp;|&nbsp; \U0001f4cd {a.get("lieu_depart","")} -> {a.get("lieu_arrivee","")}</div><div class="attente-detail">{a.get("commentaire","")}</div></div>''', unsafe_allow_html=True)
+                st.markdown(f'''<div class="attente-card"><div class="attente-titre">\U0001f550 {html_lib.escape(str(a.get("affaire","")))} \u2014 {a.get("ouvrage","") or a.get("description","")}</div><div class="attente-detail">\U0001f69b {a.get("camion","") or "Vehicule non defini"} &nbsp;|&nbsp; \U0001f4cd {html_lib.escape(str(a.get("lieu_depart","")))} -> {html_lib.escape(str(a.get("lieu_arrivee","")))}</div><div class="attente-detail">{html_lib.escape(str(a.get("commentaire","")))}</div></div>''', unsafe_allow_html=True)
             with c2:
                 if st.button("\U0001f4c5 Planifier", key=f"plan_att_{id_att}", use_container_width=True, type="primary"):
                     st.session_state[f"open_plan_att_{id_att}"] = True
@@ -1053,7 +1053,7 @@ def onglet_alertes_attente():
             hd = str(a.get("heure_debut","")); hf = str(a.get("heure_fin",""))
             plage = f"{hd} -> {hf}" if hd and hf else hd or ""
             c1,c2 = st.columns([10,1])
-            with c1: st.markdown(f'''<div class="alerte-card"><div class="alerte-titre">\u26a0\ufe0f {a.get("chauffeur","")} \u2014 {a.get("type_alerte","")} \u2014 {a.get("date_alerte","")}{" · " + plage if plage else ""}</div><div class="alerte-detail">{a.get("message","")}</div></div>''', unsafe_allow_html=True)
+            with c1: st.markdown(f'''<div class="alerte-card"><div class="alerte-titre">\u26a0\ufe0f {html_lib.escape(str(a.get("chauffeur","")))} \u2014 {html_lib.escape(str(a.get("type_alerte","")))} \u2014 {html_lib.escape(str(a.get("date_alerte","")))}{" · " + plage if plage else ""}</div><div class="alerte-detail">{html_lib.escape(str(a.get("message","")))}</div></div>''', unsafe_allow_html=True)
             with c2:
                 if st.button("\U0001f5d1", key=f"del_al2_{a.get('id_alerte','')}"):
                     delete_alerte(a.get("id_alerte","")); st.rerun()
@@ -1061,7 +1061,7 @@ def onglet_alertes_attente():
             with st.expander(f"\U0001f4c2 Alertes passees ({len(alertes_p)})"):
                 for a in alertes_p:
                     c1,c2 = st.columns([10,1])
-                    with c1: st.markdown(f'''<div class="archive-card"><strong>{a.get("chauffeur","")} \u2014 {a.get("type_alerte","")} \u2014 {a.get("date_alerte","")}</strong><br><span style="font-size:0.8rem;color:#6b7280;">{a.get("message","")}</span></div>''', unsafe_allow_html=True)
+                    with c1: st.markdown(f'''<div class="archive-card"><strong>{html_lib.escape(str(a.get("chauffeur","")))} \u2014 {html_lib.escape(str(a.get("type_alerte","")))} \u2014 {html_lib.escape(str(a.get("date_alerte","")))}</strong><br><span style="font-size:0.8rem;color:#6b7280;">{html_lib.escape(str(a.get("message","")))}</span></div>''', unsafe_allow_html=True)
                     with c2:
                         if st.button("\U0001f5d1", key=f"del_alp_{a.get('id_alerte','')}"):
                             delete_alerte(a.get("id_alerte","")); st.rerun()
