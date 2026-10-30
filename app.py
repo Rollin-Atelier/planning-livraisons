@@ -5,6 +5,7 @@ import pandas as pd
 from datetime import datetime, timedelta, date
 import uuid
 import streamlit.components.v1 as components
+import html as html_lib
 
 st.set_page_config(page_title="Planning Livraisons", page_icon="\U0001f69b", layout="wide", initial_sidebar_state="collapsed")
 
