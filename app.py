@@ -75,7 +75,7 @@ DESTINATIONS  = ["Peinture","Galvanisation","Chantier","Autre"]
 LIEUX_DEPART  = ["Atelier","Peinture","Galvanisation","Chantier","Autre"]
 LIEUX_ARRIVEE = ["Atelier","Peinture","Galvanisation","Chantier","Autre"]
 CAMIONS       = ["Camion Denjean","Camion poseur","Camion Agenov","Camion autre Semi","Camion Kangoo"]
-STATUTS       = ["Planifie","Livre","Reporte"]
+STATUTS       = ["Planifie","Livre","Reporte","A confirmer"]
 JOURS_FR      = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi"]
 JOURS_FR2     = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"]
 
@@ -406,7 +406,7 @@ def is_depasse(row):
         if pd.isna(d): return False
         hf = str(row.get("heure_fin",""))
         dt_fin = datetime.combine(d.date(), datetime.strptime(hf,"%H:%M").time()) if hf else datetime.combine(d.date(), datetime.strptime("23:59","%H:%M").time())
-        return dt_fin < datetime.now() and str(row.get("statut","")) != "Livre"
+        return dt_fin < datetime.now() and str(row.get("statut","")) not in ("Livre", "Reporte")
     except: return False
 
 def cam_badge_html(cam):
@@ -452,6 +452,40 @@ def card_html(row, archive=False):
     desc_html = f'<div class="card-desc">{html_lib.escape(desc)}</div>' if desc else ''
     return f'<div class="{cc}" style="{border_style}"><div class="card-titre"><span class="badge {bc}">{typ}</span><span class="badge {sc}">{stat}</span></div>{desc_html}<div class="card-detail">{"<br>".join(parts)}</div></div>'
 
+
+def card_html_depasse(row):
+    """Carte style terni pour trajets dont l'horaire est passé et non confirmés."""
+    typ=str(row.get("type_trajet","")); desc=str(row.get("description","") or row.get("ouvrage","") or "")
+    hd=str(row.get("heure_debut","")); hf=str(row.get("heure_fin",""))
+    adr=str(row.get("adresse","")); cnt=str(row.get("contact_nom","")); cam=str(row.get("camion",""))
+    affaire=str(row.get("affaire",""))
+    l_dep=str(row.get("lieu_depart","")); l_dep_a=str(row.get("lieu_depart_autre",""))
+    l_arr=str(row.get("lieu_arrivee","")); l_arr_a=str(row.get("lieu_arrivee_autre",""))
+    lieu_dep_label = l_dep_a if l_dep=="Autre" and l_dep_a else l_dep
+    lieu_arr_label = l_arr_a if l_arr=="Autre" and l_arr_a else l_arr
+    cam_dark = cam_color(cam, "dark")
+    parts=[]
+    if lieu_dep_label and lieu_arr_label: parts.append(f"\U0001f4cd {html_lib.escape(lieu_dep_label)} \u2192 {html_lib.escape(lieu_arr_label)}")
+    elif lieu_dep_label: parts.append(f"\U0001f4cd Depart : {lieu_dep_label}")
+    elif lieu_arr_label: parts.append(f"\U0001f4cd Arrivee : {lieu_arr_label}")
+    if affaire and typ=="Livraison ouvrage": parts.append(f"\U0001f3d7\ufe0f {affaire}")
+    if hd and hf: parts.append(f"\u23f1 {hd} - {hf}")
+    if adr:
+        import urllib.parse
+        adr_enc = urllib.parse.quote(adr)
+        parts.append(f'\U0001f4cc {adr} &nbsp; <a href="https://maps.google.com/?q={adr_enc}" target="_blank" style="color:#f97316;text-decoration:none;font-weight:600;">\U0001f5fa\ufe0f Maps</a> &nbsp; <a href="https://waze.com/ul?q={adr_enc}" target="_blank" style="color:#00bcd4;text-decoration:none;font-weight:600;">\U0001f697 Waze</a>')
+        nom_fourn = ADRESSE_TO_FOURNISSEUR.get(adr.lower().strip())
+        if nom_fourn: parts.append(f'<span style="font-weight:600;color:#f97316;">\U0001f3ed {nom_fourn}</span>')
+    if cnt: parts.append(f"\U0001f464 {html_lib.escape(cnt)}")
+    comm = str(row.get("commentaire","") or "").strip()
+    if comm: parts.append(f"\U0001f4ac {html_lib.escape(comm)}")
+    if cam: parts.append(f"\U0001f69a {cam}")
+    desc_html = f'<div class="card-desc" style="opacity:0.7;">{html_lib.escape(desc)}</div>' if desc else ''
+    badge_dep = '<span style="background:#fed7aa;color:#9a3412;border-radius:4px;padding:2px 7px;font-size:0.72rem;font-weight:600;">\u23f0 A confirmer</span>'
+    return f'''<div style="background:#fffbf5;border-left:4px solid #fdba74;border-radius:8px;padding:10px 14px;margin-bottom:6px;opacity:0.85;">
+<div class="card-titre"><span class="badge {TYPE_BADGE.get(typ,'badge-td')}">{typ}</span>{badge_dep}</div>
+{desc_html}<div class="card-detail" style="opacity:0.75;">{"<br>".join(parts)}</div></div>'''
+
 def legende_camions_html():
     items = ""
     for cam, cols in CAMION_COLORS.items():
@@ -480,56 +514,93 @@ def trajet_avec_menu(row, ws, all_rows, key_prefix=""):
     desc_short = desc[:70] + ("…" if len(desc) > 70 else "")
     exp_label  = f"🕐 {hd_actuel} – {hf_actuel}   ·   {desc_short}"
 
+    _depasse = is_depasse(row)
     with st.expander(exp_label, expanded=False):
-        st.markdown(card_html(row), unsafe_allow_html=True)
-        with st.popover("⋮ Modifier / Supprimer"):
-            st.markdown("**Modifier le trajet**")
-            c1, c2 = st.columns(2)
-            with c1:
-                new_stat = st.selectbox("Statut", STATUTS,
-                    index=STATUTS.index(stat_actuel) if stat_actuel in STATUTS else 0,
-                    key=f"pop_stat_{key_prefix}_{id_t}")
-                new_date = st.date_input("Date", value=date_actuelle,
-                    key=f"pop_date_{key_prefix}_{id_t}")
-                new_hd   = st.selectbox("Heure debut", heures, index=idx_hd,
-                    key=f"pop_hd_{key_prefix}_{id_t}")
-                new_hf   = st.selectbox("Heure fin", heures, index=idx_hf,
-                    key=f"pop_hf_{key_prefix}_{id_t}")
-            with c2:
-                new_cam  = st.selectbox("Vehicule", CAMIONS, index=idx_cam,
-                    key=f"pop_cam_{key_prefix}_{id_t}")
-                type_actuel = str(row.get("type_trajet",""))
-                idx_type = TYPES_TRAJET.index(type_actuel) if type_actuel in TYPES_TRAJET else 0
-                new_type = st.selectbox("Type de trajet", TYPES_TRAJET, index=idx_type,
-                    key=f"pop_type_{key_prefix}_{id_t}")
-                new_desc = st.text_input("Description / Objet du trajet",
-                    value=str(row.get("description","") or ""),
-                    key=f"pop_desc_{key_prefix}_{id_t}")
-                new_comment = st.text_area("Commentaire",
-                    value=str(row.get("commentaire","") or ""),
-                    key=f"pop_com_{key_prefix}_{id_t}", height=80)
-            new_adresse = st.text_input("Adresse",
-                value=adresse_act,
-                key=f"pop_adr_{key_prefix}_{id_t}")
-            c_ok, c_del = st.columns(2)
-            with c_ok:
-                if st.button("✅ Valider", key=f"pop_ok_{key_prefix}_{id_t}",
-                             use_container_width=True, type="primary"):
+        if _depasse:
+            st.markdown(card_html_depasse(row), unsafe_allow_html=True)
+        else:
+            st.markdown(card_html(row), unsafe_allow_html=True)
+        if _depasse:
+            # ── Boutons Effectué / Reporté ─────────────────────────────────
+            cb1, cb2, cb3 = st.columns([1, 1, 2])
+            with cb1:
+                if st.button("✅ Effectué", key=f"eff_{key_prefix}_{id_t}", use_container_width=True, type="primary"):
                     if ws:
                         for ri, r in enumerate(all_rows):
                             if str(r.get("id_trajet","")) == id_t:
-                                do_update_full(ws, ri, new_stat, new_date, new_hd, new_hf,
-                                               new_cam, new_type, new_comment, new_desc, new_adresse,
-                                               id_trajet=str(r.get("id_trajet","")))
-                                st.success("Mis a jour !"); st.rerun(); break
-            with c_del:
-                if st.button("🗑️ Supprimer", key=f"pop_del_{key_prefix}_{id_t}",
-                             use_container_width=True):
-                    if ws:
-                        for ri, r in enumerate(all_rows):
-                            if str(r.get("id_trajet","")) == id_t:
-                                do_delete_trajet(ws, ri, id_trajet=str(r.get("id_trajet","")))
-                                st.success("Supprime !"); st.rerun(); break
+                                do_update_statut(ws, ri, "Livre", id_trajet=id_t)
+                                st.success("Marqué comme effectué !"); st.rerun(); break
+            with cb2:
+                if st.button("🔄 Reporté", key=f"rep_{key_prefix}_{id_t}", use_container_width=True):
+                    st.session_state[f"show_report_{id_t}"] = not st.session_state.get(f"show_report_{id_t}", False)
+            if st.session_state.get(f"show_report_{id_t}", False):
+                with st.form(key=f"form_report_{key_prefix}_{id_t}", clear_on_submit=True):
+                    st.markdown("**Reporter ce trajet à :**")
+                    cr1, cr2, cr3 = st.columns(3)
+                    new_date_r = cr1.date_input("Nouvelle date", value=date.today(), key=f"rd_{key_prefix}_{id_t}")
+                    heures_r = heures_list()
+                    new_hd_r = cr2.selectbox("Heure debut", heures_r, index=heures_r.index(hd_actuel) if hd_actuel in heures_r else 0, key=f"rhd_{key_prefix}_{id_t}")
+                    new_hf_r = cr3.selectbox("Heure fin", heures_r, index=heures_r.index(hf_actuel) if hf_actuel in heures_r else 4, key=f"rhf_{key_prefix}_{id_t}")
+                    if st.form_submit_button("✅ Confirmer le report", type="primary"):
+                        if ws:
+                            for ri, r in enumerate(all_rows):
+                                if str(r.get("id_trajet","")) == id_t:
+                                    from datetime import datetime as _dt
+                                    new_sem = f"S{_dt.combine(new_date_r, _dt.min.time()).isocalendar()[1]}-{new_date_r.year}"
+                                    do_update_full(ws, ri, "Reporte", new_date_r, new_hd_r, new_hf_r,
+                                                   cam_actuel, id_trajet=id_t)
+                                    st.session_state[f"show_report_{id_t}"] = False
+                                    st.success(f"Reporté au {new_date_r.strftime('%d/%m/%Y')} !"); st.rerun(); break
+        else:
+            # ── Menu Modifier/Supprimer normal ─────────────────────────────────
+            with st.popover("⋮ Modifier / Supprimer"):
+                st.markdown("**Modifier le trajet**")
+                c1, c2 = st.columns(2)
+                with c1:
+                    new_stat = st.selectbox("Statut", STATUTS,
+                        index=STATUTS.index(stat_actuel) if stat_actuel in STATUTS else 0,
+                        key=f"pop_stat_{key_prefix}_{id_t}")
+                    new_date = st.date_input("Date", value=date_actuelle,
+                        key=f"pop_date_{key_prefix}_{id_t}")
+                    new_hd   = st.selectbox("Heure debut", heures, index=idx_hd,
+                        key=f"pop_hd_{key_prefix}_{id_t}")
+                    new_hf   = st.selectbox("Heure fin", heures, index=idx_hf,
+                        key=f"pop_hf_{key_prefix}_{id_t}")
+                with c2:
+                    new_cam  = st.selectbox("Vehicule", CAMIONS, index=idx_cam,
+                        key=f"pop_cam_{key_prefix}_{id_t}")
+                    type_actuel = str(row.get("type_trajet",""))
+                    idx_type = TYPES_TRAJET.index(type_actuel) if type_actuel in TYPES_TRAJET else 0
+                    new_type = st.selectbox("Type de trajet", TYPES_TRAJET, index=idx_type,
+                        key=f"pop_type_{key_prefix}_{id_t}")
+                    new_desc = st.text_input("Description / Objet du trajet",
+                        value=str(row.get("description","") or ""),
+                        key=f"pop_desc_{key_prefix}_{id_t}")
+                    new_comment = st.text_area("Commentaire",
+                        value=str(row.get("commentaire","") or ""),
+                        key=f"pop_com_{key_prefix}_{id_t}", height=80)
+                new_adresse = st.text_input("Adresse",
+                    value=adresse_act,
+                    key=f"pop_adr_{key_prefix}_{id_t}")
+                c_ok, c_del = st.columns(2)
+                with c_ok:
+                    if st.button("✅ Valider", key=f"pop_ok_{key_prefix}_{id_t}",
+                                 use_container_width=True, type="primary"):
+                        if ws:
+                            for ri, r in enumerate(all_rows):
+                                if str(r.get("id_trajet","")) == id_t:
+                                    do_update_full(ws, ri, new_stat, new_date, new_hd, new_hf,
+                                                   new_cam, new_type, new_comment, new_desc, new_adresse,
+                                                   id_trajet=str(r.get("id_trajet","")))
+                                    st.success("Mis a jour !"); st.rerun(); break
+                with c_del:
+                    if st.button("🗑️ Supprimer", key=f"pop_del_{key_prefix}_{id_t}",
+                                 use_container_width=True):
+                        if ws:
+                            for ri, r in enumerate(all_rows):
+                                if str(r.get("id_trajet","")) == id_t:
+                                    do_delete_trajet(ws, ri, id_trajet=str(r.get("id_trajet","")))
+                                    st.success("Supprime !"); st.rerun(); break
 
 def form_planif_rapide(affaire, ouvrage, id_tache, key_suffix=""):
     semaines=get_semaines(); sem_def=sem_courante()
@@ -1127,7 +1198,14 @@ def onglet_calendrier(df):
         else:
             df_jour = pd.DataFrame()
         with col:
-            cards="".join(card_html(r) for _,r in df_jour.iterrows()) if not df_jour.empty else '<div class="day-vide">\u2014</div>'
+            def _card_for_row(r):
+                s = str(r.get("statut",""))
+                if s == "Livre":
+                    return f'<div style="background:#f0fdf4;border-left:4px solid #86efac;border-radius:8px;padding:8px 12px;margin-bottom:5px;opacity:0.8;"><span style="font-size:0.7rem;font-weight:600;color:#16a34a;">✅ EFFECTUE</span><br>' + card_html(r, archive=True) + '</div>'
+                elif s == "Reporte":
+                    return f'<div style="background:#fefce8;border-left:4px solid #fde047;border-radius:8px;padding:8px 12px;margin-bottom:5px;opacity:0.8;"><span style="font-size:0.7rem;font-weight:600;color:#854d0e;">🔄 REPORTE</span><br>' + card_html(r, archive=True) + '</div>'
+                return card_html(r)
+            cards="".join(_card_for_row(r) for _,r in df_jour.iterrows()) if not df_jour.empty else '<div class="day-vide">\u2014</div>'
             st.markdown(f'<div class="col-jour {today_cls}"><div class="col-jour-header">{JOURS_FR[i]}<br><span class="day-num">{d.day}</span><span style="font-size:0.75rem;color:#888;">{d.strftime("%b").capitalize()}</span></div>{cards}</div>',unsafe_allow_html=True)
             if not df_jour.empty:
                 pdf_key = f"pdf_bytes_{d}"
