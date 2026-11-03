@@ -841,7 +841,9 @@ def onglet_dashboard(df):
     # ── Alerte Christophe avant 7h30 ──────────────────────────────────────────
     if not df_actifs.empty and "heure_debut" in df_actifs.columns and "camion" in df_actifs.columns:
         df_chris = df_actifs[
-            df_actifs["camion"].str.contains("Christophe", case=False, na=False) &
+            (df_actifs["camion"].str.contains("Denjean", case=False, na=False) |
+             df_actifs["camion"].str.contains("Christophe", case=False, na=False) |
+             df_actifs["commentaire"].str.contains("Christophe", case=False, na=False)) &
             df_actifs["heure_debut"].apply(lambda h: _parse_h(str(h)) < "07:30") &
             df_actifs["date_livraison"].notna() &
             (df_actifs["date_livraison"].dt.date >= today)
