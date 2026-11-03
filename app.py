@@ -440,12 +440,14 @@ def trajet_avec_menu(row, ws, all_rows, key_prefix=""):
     idx_hf  = heures.index(hf_actuel)  if hf_actuel  in heures  else 4
     idx_cam = CAMIONS.index(cam_actuel) if cam_actuel in CAMIONS else 0
 
-    col_card, col_menu = st.columns([11, 1])
-    with col_card:
+    # Label de l'expander : horaire + titre en gros
+    desc_short = desc[:70] + ("…" if len(desc) > 70 else "")
+    exp_label  = f"🕐 {hd_actuel} – {hf_actuel}   ·   {desc_short}"
+
+    with st.expander(exp_label, expanded=False):
         st.markdown(card_html(row), unsafe_allow_html=True)
-    with col_menu:
-        with st.popover("⋮"):
-            st.markdown(f"**Modifier le trajet**")
+        with st.popover("⋮ Modifier / Supprimer"):
+            st.markdown("**Modifier le trajet**")
             c1, c2 = st.columns(2)
             with c1:
                 new_stat = st.selectbox("Statut", STATUTS,
@@ -491,6 +493,7 @@ def trajet_avec_menu(row, ws, all_rows, key_prefix=""):
                             if str(r.get("id_trajet","")) == id_t:
                                 do_delete_trajet(ws, ri)
                                 st.success("Supprime !"); st.rerun(); break
+
 def form_planif_rapide(affaire, ouvrage, id_tache, key_suffix=""):
     semaines=get_semaines(); sem_def=sem_courante()
     idx_s=semaines.index(sem_def) if sem_def in semaines else 2
