@@ -103,6 +103,11 @@ STATUT_BADGE = {"Planifie":"badge-planifie","Livre":"badge-livre","Reporte":"bad
 HEADER_LIVRAISONS = ["id_trajet","type_trajet","id_tache","affaire","ouvrage","lieu_depart","lieu_depart_autre","lieu_arrivee","lieu_arrivee_autre","destination","nom_chantier","description","adresse","contact_nom","contact_tel","date_livraison","semaine","heure_debut","heure_fin","camion","statut","commentaire"]
 HEADER_ALERTES = ["id_alerte","chauffeur","date_alerte","heure_debut","heure_fin","type_alerte","message"]
 HEADER_ATTENTE = ["id_attente","type_trajet","affaire","ouvrage","lieu_depart","lieu_arrivee","description","adresse","contact_nom","contact_tel","camion","commentaire","created"]
+
+def _parse_h(h):
+    """Parse une heure 'HH:MM' depuis n'importe quel format Sheet."""
+    m = re.match(r"(\d{1,2})[:h\.](\d{2})", str(h).strip())
+    return f"{int(m.group(1)):02d}:{m.group(2)}" if m else "99:99"
 TYPES_ALERTE = ["Conge", "RDV medical", "Depart anticipe", "Absent", "Autre"]
 CHAUFFEURS = ["Christophe"]
 FOURNISSEURS = {
@@ -1029,6 +1034,9 @@ def onglet_calendrier(df):
     if not dates_sem: st.error("Semaine invalide."); return
     today=date.today()
     df_sem=df[df["date_livraison"].dt.date.between(dates_sem[0],dates_sem[4])].copy() if not df.empty and "date_livraison" in df.columns else pd.DataFrame()
+    if not df_sem.empty and "heure_debut" in df_sem.columns:
+        df_sem["_sort_h_pre"] = df_sem["heure_debut"].apply(_parse_h)
+        df_sem = df_sem.sort_values(["date_livraison","_sort_h_pre"]).drop(columns=["_sort_h_pre"]).reset_index(drop=True)
     nb=len(df_sem); d0=dates_sem[0].strftime("%d/%m/%Y"); d4=dates_sem[4].strftime("%d/%m/%Y")
     st.markdown(f'<div style="background:white;border-radius:10px;padding:12px 18px;margin-bottom:8px;border-left:5px solid #f97316;"><strong>Semaine {semaine}</strong> &nbsp;|&nbsp; {d0} au {d4} &nbsp;|&nbsp; <strong>{nb} trajet(s)</strong></div>',unsafe_allow_html=True)
     st.markdown(legende_camions_html(), unsafe_allow_html=True)
@@ -1037,10 +1045,6 @@ def onglet_calendrier(df):
         today_cls="col-jour-today" if d==today else ""
         if not df_sem.empty and "date_livraison" in df_sem.columns:
             df_jour = df_sem[df_sem["date_livraison"].dt.date==d].copy()
-            def _parse_h(h):
-                import re as _re
-                m = _re.match(r"(\d{1,2})[:h\.](\d{2})", str(h).strip())
-                return f"{int(m.group(1)):02d}:{m.group(2)}" if m else "99:99"
             df_jour["_sort_h"] = df_jour["heure_debut"].apply(_parse_h)
             df_jour = df_jour.sort_values("_sort_h").drop(columns=["_sort_h"]).reset_index(drop=True)
         else:
@@ -1068,10 +1072,6 @@ def onglet_calendrier(df):
     for i,d in enumerate(dates_sem):
         if not df_sem.empty and "date_livraison" in df_sem.columns:
             df_jour = df_sem[df_sem["date_livraison"].dt.date==d].copy()
-            def _parse_h(h):
-                import re as _re
-                m = _re.match(r"(\d{1,2})[:h\.](\d{2})", str(h).strip())
-                return f"{int(m.group(1)):02d}:{m.group(2)}" if m else "99:99"
             df_jour["_sort_h"] = df_jour["heure_debut"].apply(_parse_h)
             df_jour = df_jour.sort_values("_sort_h").drop(columns=["_sort_h"]).reset_index(drop=True)
         else:
