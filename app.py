@@ -261,11 +261,15 @@ def _fetch_from_sheets():
 
     st.session_state["last_sync"] = datetime.now()
 
+CACHE_VERSION = "v4"
+
 def ensure_cache():
-    """Sync auto toutes les 60s, ou si cache absent."""
+    """Sync auto toutes les 300s, ou si cache absent/obsolète."""
     last = st.session_state.get("last_sync")
-    if last is None or (datetime.now() - last).total_seconds() > 300:
+    version_ok = st.session_state.get("cache_version") == CACHE_VERSION
+    if last is None or not version_ok or (datetime.now() - last).total_seconds() > 300:
         _fetch_from_sheets()
+        st.session_state["cache_version"] = CACHE_VERSION
 
 def save_alerte(row_data):
     sh = open_sheet()
@@ -833,6 +837,29 @@ def onglet_dashboard(df):
     st.markdown("---")
     st.markdown(legende_camions_html(), unsafe_allow_html=True)
     ws=get_ws("livraisons"); all_rows=load_livraisons().to_dict("records")
+
+    # ── Alerte Christophe avant 7h30 ──────────────────────────────────────────
+    if not df_actifs.empty and "heure_debut" in df_actifs.columns and "camion" in df_actifs.columns:
+        df_chris = df_actifs[
+            df_actifs["camion"].str.contains("Christophe", case=False, na=False) &
+            df_actifs["heure_debut"].apply(lambda h: _parse_h(str(h)) < "07:30") &
+            df_actifs["date_livraison"].notna() &
+            (df_actifs["date_livraison"].dt.date >= today)
+        ].copy()
+        if not df_chris.empty:
+            st.markdown("---")
+            for _, row_c in df_chris.iterrows():
+                d_c = row_c["date_livraison"]
+                d_label = fr_date_label(d_c.date()) if pd.notna(d_c) else "?"
+                hd_c = str(row_c.get("heure_debut", ""))
+                desc_c = str(row_c.get("description", "") or row_c.get("ouvrage", "") or "")
+                st.markdown(
+                    f'''<div style="background:#fff3cd;border-left:5px solid #f97316;border-radius:8px;
+                    padding:12px 16px;margin-bottom:8px;font-size:0.95rem;">
+                    ⏰ <strong>Attention — Christophe démarre à {hd_c}</strong> le <strong>{d_label}</strong>
+                    (avant 7h30) &nbsp;·&nbsp; {html_lib.escape(desc_c)}
+                    </div>''', unsafe_allow_html=True)
+
     st.markdown("### \U0001f7e2 Ouvrages termines \u2014 prets a expedier")
     taches_df=load_taches_terminees()
     if not taches_df.empty:
