@@ -412,43 +412,76 @@ def legende_camions_html():
     return f'<div class="legende-cam">{items}</div>'
 
 def trajet_avec_menu(row, ws, all_rows, key_prefix=""):
-    id_t=str(row.get("id_trajet","")); stat_actuel=str(row.get("statut","Planifie"))
-    cam_actuel=str(row.get("camion","Camion Denjean")); heures=heures_list()
+    id_t       = str(row.get("id_trajet",""))
+    stat_actuel= str(row.get("statut","Planifie"))
+    cam_actuel = str(row.get("camion","Camion Denjean"))
+    heures     = heures_list()
+    desc       = str(row.get("description","") or row.get("ouvrage","") or "")
+    hd_actuel  = str(row.get("heure_debut","08:00"))
+    hf_actuel  = str(row.get("heure_fin","10:00"))
+    cam_emoji  = "🚛"
     try:
-        date_actuelle=pd.to_datetime(row.get("date_livraison"),errors="coerce")
-        date_actuelle=date_actuelle.date() if not pd.isna(date_actuelle) else date.today()
-    except: date_actuelle=date.today()
-    hd_actuel=str(row.get("heure_debut","08:00")); hf_actuel=str(row.get("heure_fin","10:00"))
-    idx_hd=heures.index(hd_actuel) if hd_actuel in heures else 0
-    idx_hf=heures.index(hf_actuel) if hf_actuel in heures else 4
-    idx_cam=CAMIONS.index(cam_actuel) if cam_actuel in CAMIONS else 0
-    col_card,col_menu=st.columns([11,1])
-    with col_card: st.markdown(card_html(row),unsafe_allow_html=True)
-    with col_menu:
-        with st.popover("\u22ee"):
-            st.markdown("**Modifier**")
-            new_stat=st.selectbox("Statut",STATUTS,index=STATUTS.index(stat_actuel) if stat_actuel in STATUTS else 0,key=f"pop_stat_{key_prefix}_{id_t}")
-            new_date=st.date_input("Date",value=date_actuelle,key=f"pop_date_{key_prefix}_{id_t}")
-            new_hd=st.selectbox("Heure debut",heures,index=idx_hd,key=f"pop_hd_{key_prefix}_{id_t}")
-            new_hf=st.selectbox("Heure fin",heures,index=idx_hf,key=f"pop_hf_{key_prefix}_{id_t}")
-            new_cam=st.selectbox("Vehicule",CAMIONS,index=idx_cam,key=f"pop_cam_{key_prefix}_{id_t}")
-            type_actuel=str(row.get("type_trajet",""))
-            idx_type=TYPES_TRAJET.index(type_actuel) if type_actuel in TYPES_TRAJET else 0
-            new_type=st.selectbox("Type de trajet",TYPES_TRAJET,index=idx_type,key=f"pop_type_{key_prefix}_{id_t}")
-            new_desc=st.text_input("Description / Objet du trajet",value=str(row.get("description","") or ""),key=f"pop_desc_{key_prefix}_{id_t}")
-            new_comment=st.text_area("Commentaire",value=str(row.get("commentaire","") or ""),key=f"pop_com_{key_prefix}_{id_t}",height=80)
-            if st.button("Valider",key=f"pop_ok_{key_prefix}_{id_t}",use_container_width=True,type="primary"):
-                if ws:
-                    for ri,r in enumerate(all_rows):
-                        if str(r.get("id_trajet",""))==id_t:
-                            do_update_full(ws,ri,new_stat,new_date,new_hd,new_hf,new_cam,new_type,new_comment,new_desc)
-                            st.success("Mis a jour !"); st.rerun(); break
-            st.markdown("---")
-            if st.button("\U0001f5d1 Supprimer",key=f"pop_del_{key_prefix}_{id_t}",use_container_width=True):
-                if ws:
-                    for ri,r in enumerate(all_rows):
-                        if str(r.get("id_trajet",""))==id_t:
-                            do_delete_trajet(ws,ri); st.success("Supprime !"); st.rerun(); break
+        date_actuelle = pd.to_datetime(row.get("date_livraison"), errors="coerce")
+        date_actuelle = date_actuelle.date() if not pd.isna(date_actuelle) else date.today()
+    except:
+        date_actuelle = date.today()
+    idx_hd  = heures.index(hd_actuel)  if hd_actuel  in heures  else 0
+    idx_hf  = heures.index(hf_actuel)  if hf_actuel  in heures  else 4
+    idx_cam = CAMIONS.index(cam_actuel) if cam_actuel in CAMIONS else 0
+
+    # Label de l'expander : heure + camion + description
+    cam_short = cam_actuel.replace("Camion ","")
+    exp_label = f"{hd_actuel} - {hf_actuel}  ·  {cam_short}  ·  {desc[:60]}{'…' if len(desc)>60 else ''}"
+
+    with st.expander(exp_label, expanded=False):
+        # Détail complet de la carte
+        st.markdown(card_html(row), unsafe_allow_html=True)
+        st.markdown("---")
+        # Menu modifier
+        with st.expander("✏️ Modifier ce trajet", expanded=False):
+            c1, c2 = st.columns(2)
+            with c1:
+                new_stat = st.selectbox("Statut", STATUTS,
+                    index=STATUTS.index(stat_actuel) if stat_actuel in STATUTS else 0,
+                    key=f"pop_stat_{key_prefix}_{id_t}")
+                new_date = st.date_input("Date", value=date_actuelle,
+                    key=f"pop_date_{key_prefix}_{id_t}")
+                new_hd   = st.selectbox("Heure debut", heures, index=idx_hd,
+                    key=f"pop_hd_{key_prefix}_{id_t}")
+                new_hf   = st.selectbox("Heure fin", heures, index=idx_hf,
+                    key=f"pop_hf_{key_prefix}_{id_t}")
+            with c2:
+                new_cam  = st.selectbox("Vehicule", CAMIONS, index=idx_cam,
+                    key=f"pop_cam_{key_prefix}_{id_t}")
+                type_actuel = str(row.get("type_trajet",""))
+                idx_type = TYPES_TRAJET.index(type_actuel) if type_actuel in TYPES_TRAJET else 0
+                new_type = st.selectbox("Type de trajet", TYPES_TRAJET, index=idx_type,
+                    key=f"pop_type_{key_prefix}_{id_t}")
+                new_desc = st.text_input("Description / Objet du trajet",
+                    value=str(row.get("description","") or ""),
+                    key=f"pop_desc_{key_prefix}_{id_t}")
+                new_comment = st.text_area("Commentaire",
+                    value=str(row.get("commentaire","") or ""),
+                    key=f"pop_com_{key_prefix}_{id_t}", height=80)
+            c_ok, c_del = st.columns(2)
+            with c_ok:
+                if st.button("✅ Valider", key=f"pop_ok_{key_prefix}_{id_t}",
+                             use_container_width=True, type="primary"):
+                    if ws:
+                        for ri, r in enumerate(all_rows):
+                            if str(r.get("id_trajet","")) == id_t:
+                                do_update_full(ws, ri, new_stat, new_date, new_hd, new_hf,
+                                               new_cam, new_type, new_comment, new_desc)
+                                st.success("Mis a jour !"); st.rerun(); break
+            with c_del:
+                if st.button("🗑️ Supprimer", key=f"pop_del_{key_prefix}_{id_t}",
+                             use_container_width=True):
+                    if ws:
+                        for ri, r in enumerate(all_rows):
+                            if str(r.get("id_trajet","")) == id_t:
+                                do_delete_trajet(ws, ri)
+                                st.success("Supprime !"); st.rerun(); break
+
 
 def form_planif_rapide(affaire, ouvrage, id_tache, key_suffix=""):
     semaines=get_semaines(); sem_def=sem_courante()
@@ -1002,7 +1035,12 @@ def onglet_calendrier(df):
     cols=st.columns(5)
     for i,(col,d) in enumerate(zip(cols,dates_sem)):
         today_cls="col-jour-today" if d==today else ""
-        df_jour=df_sem[df_sem["date_livraison"].dt.date==d].sort_values("heure_debut") if not df_sem.empty and "date_livraison" in df_sem.columns else pd.DataFrame()
+        if not df_sem.empty and "date_livraison" in df_sem.columns:
+            df_jour = df_sem[df_sem["date_livraison"].dt.date==d].copy()
+            df_jour["_sort_h"] = pd.to_datetime(df_jour["heure_debut"].astype(str).str.strip().str.zfill(5), format="%H:%M", errors="coerce")
+            df_jour = df_jour.sort_values("_sort_h").drop(columns=["_sort_h"])
+        else:
+            df_jour = pd.DataFrame()
         with col:
             cards="".join(card_html(r) for _,r in df_jour.iterrows()) if not df_jour.empty else '<div class="day-vide">\u2014</div>'
             st.markdown(f'<div class="col-jour {today_cls}"><div class="col-jour-header">{JOURS_FR[i]}<br><span class="day-num">{d.day}</span><span style="font-size:0.75rem;color:#888;">{d.strftime("%b").capitalize()}</span></div>{cards}</div>',unsafe_allow_html=True)
@@ -1024,7 +1062,12 @@ def onglet_calendrier(df):
     if df_sem.empty: st.info("Aucun trajet cette semaine."); return
     ws=get_ws("livraisons"); all_rows=load_livraisons().to_dict("records")
     for i,d in enumerate(dates_sem):
-        df_jour=df_sem[df_sem["date_livraison"].dt.date==d].sort_values("heure_debut") if not df_sem.empty and "date_livraison" in df_sem.columns else pd.DataFrame()
+        if not df_sem.empty and "date_livraison" in df_sem.columns:
+            df_jour = df_sem[df_sem["date_livraison"].dt.date==d].copy()
+            df_jour["_sort_h"] = pd.to_datetime(df_jour["heure_debut"].astype(str).str.strip().str.zfill(5), format="%H:%M", errors="coerce")
+            df_jour = df_jour.sort_values("_sort_h").drop(columns=["_sort_h"])
+        else:
+            df_jour = pd.DataFrame()
         if df_jour.empty: continue
         st.markdown(f'<div class="bandeau-jour">{JOURS_FR[i]} {d.strftime("%d/%m/%Y")} &nbsp;\u2014&nbsp; {len(df_jour)} trajet(s)</div>',unsafe_allow_html=True)
         for _,row in df_jour.iterrows(): trajet_avec_menu(row,ws,all_rows,key_prefix=f"cal_{i}")
