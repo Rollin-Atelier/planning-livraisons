@@ -329,12 +329,13 @@ def do_update_statut(ws, row_idx, new_statut):
     ws.update_cell(row_idx + 2, col_idx, new_statut)
     st.session_state["last_sync"] = None
 
-def do_update_full(ws, row_idx, new_statut, new_date, new_hd, new_hf, new_cam, new_type=None, new_comment=None, new_desc=None):
+def do_update_full(ws, row_idx, new_statut, new_date, new_hd, new_hf, new_cam, new_type=None, new_comment=None, new_desc=None, new_adresse=None):
     row_num = row_idx + 2
     fields = [("statut",new_statut),("date_livraison",str(new_date) if new_date else ""),("heure_debut",new_hd),("heure_fin",new_hf),("camion",new_cam)]
     if new_type is not None: fields.append(("type_trajet", new_type))
     if new_comment is not None: fields.append(("commentaire", new_comment))
     if new_desc is not None: fields.append(("description", new_desc))
+    if new_adresse is not None: fields.append(("adresse", new_adresse))
     for field, val in fields:
         col_idx = HEADER_LIVRAISONS.index(field) + 1
         ws.update_cell(row_num, col_idx, val)
@@ -422,14 +423,14 @@ def legende_camions_html():
     return f'<div class="legende-cam">{items}</div>'
 
 def trajet_avec_menu(row, ws, all_rows, key_prefix=""):
-    id_t       = str(row.get("id_trajet",""))
-    stat_actuel= str(row.get("statut","Planifie"))
-    cam_actuel = str(row.get("camion","Camion Denjean"))
-    heures     = heures_list()
-    desc       = str(row.get("description","") or row.get("ouvrage","") or "")
-    hd_actuel  = str(row.get("heure_debut","08:00"))
-    hf_actuel  = str(row.get("heure_fin","10:00"))
-    cam_emoji  = "🚛"
+    id_t        = str(row.get("id_trajet",""))
+    stat_actuel = str(row.get("statut","Planifie"))
+    cam_actuel  = str(row.get("camion","Camion Denjean"))
+    heures      = heures_list()
+    desc        = str(row.get("description","") or row.get("ouvrage","") or "")
+    hd_actuel   = str(row.get("heure_debut","08:00"))
+    hf_actuel   = str(row.get("heure_fin","10:00"))
+    adresse_act = str(row.get("adresse","") or "")
     try:
         date_actuelle = pd.to_datetime(row.get("date_livraison"), errors="coerce")
         date_actuelle = date_actuelle.date() if not pd.isna(date_actuelle) else date.today()
@@ -439,16 +440,12 @@ def trajet_avec_menu(row, ws, all_rows, key_prefix=""):
     idx_hf  = heures.index(hf_actuel)  if hf_actuel  in heures  else 4
     idx_cam = CAMIONS.index(cam_actuel) if cam_actuel in CAMIONS else 0
 
-    # Label de l'expander : heure + camion + description
-    cam_short = cam_actuel.replace("Camion ","")
-    exp_label = f"{hd_actuel} - {hf_actuel}  ·  {cam_short}  ·  {desc[:60]}{'…' if len(desc)>60 else ''}"
-
-    with st.expander(exp_label, expanded=False):
-        # Détail complet de la carte
+    col_card, col_menu = st.columns([11, 1])
+    with col_card:
         st.markdown(card_html(row), unsafe_allow_html=True)
-        st.markdown("---")
-        # Menu modifier
-        with st.expander("✏️ Modifier ce trajet", expanded=False):
+    with col_menu:
+        with st.popover("⋮"):
+            st.markdown(f"**Modifier le trajet**")
             c1, c2 = st.columns(2)
             with c1:
                 new_stat = st.selectbox("Statut", STATUTS,
@@ -473,6 +470,9 @@ def trajet_avec_menu(row, ws, all_rows, key_prefix=""):
                 new_comment = st.text_area("Commentaire",
                     value=str(row.get("commentaire","") or ""),
                     key=f"pop_com_{key_prefix}_{id_t}", height=80)
+            new_adresse = st.text_input("Adresse",
+                value=adresse_act,
+                key=f"pop_adr_{key_prefix}_{id_t}")
             c_ok, c_del = st.columns(2)
             with c_ok:
                 if st.button("✅ Valider", key=f"pop_ok_{key_prefix}_{id_t}",
@@ -481,7 +481,7 @@ def trajet_avec_menu(row, ws, all_rows, key_prefix=""):
                         for ri, r in enumerate(all_rows):
                             if str(r.get("id_trajet","")) == id_t:
                                 do_update_full(ws, ri, new_stat, new_date, new_hd, new_hf,
-                                               new_cam, new_type, new_comment, new_desc)
+                                               new_cam, new_type, new_comment, new_desc, new_adresse)
                                 st.success("Mis a jour !"); st.rerun(); break
             with c_del:
                 if st.button("🗑️ Supprimer", key=f"pop_del_{key_prefix}_{id_t}",
@@ -491,8 +491,6 @@ def trajet_avec_menu(row, ws, all_rows, key_prefix=""):
                             if str(r.get("id_trajet","")) == id_t:
                                 do_delete_trajet(ws, ri)
                                 st.success("Supprime !"); st.rerun(); break
-
-
 def form_planif_rapide(affaire, ouvrage, id_tache, key_suffix=""):
     semaines=get_semaines(); sem_def=sem_courante()
     idx_s=semaines.index(sem_def) if sem_def in semaines else 2
