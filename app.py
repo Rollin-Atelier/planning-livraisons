@@ -1037,9 +1037,11 @@ def onglet_calendrier(df):
         today_cls="col-jour-today" if d==today else ""
         if not df_sem.empty and "date_livraison" in df_sem.columns:
             df_jour = df_sem[df_sem["date_livraison"].dt.date==d].copy()
-            df_jour["_sort_h"] = df_jour["heure_debut"].astype(str).str.strip().apply(
-                lambda x: x.zfill(5) if len(x.strip()) > 0 else "99:99"
-            )
+            def _parse_h(h):
+                import re as _re
+                m = _re.match(r"(\d{1,2})[:h\.](\d{2})", str(h).strip())
+                return f"{int(m.group(1)):02d}:{m.group(2)}" if m else "99:99"
+            df_jour["_sort_h"] = df_jour["heure_debut"].apply(_parse_h)
             df_jour = df_jour.sort_values("_sort_h").drop(columns=["_sort_h"]).reset_index(drop=True)
         else:
             df_jour = pd.DataFrame()
@@ -1066,9 +1068,11 @@ def onglet_calendrier(df):
     for i,d in enumerate(dates_sem):
         if not df_sem.empty and "date_livraison" in df_sem.columns:
             df_jour = df_sem[df_sem["date_livraison"].dt.date==d].copy()
-            df_jour["_sort_h"] = df_jour["heure_debut"].astype(str).str.strip().apply(
-                lambda x: x.zfill(5) if len(x.strip()) > 0 else "99:99"
-            )
+            def _parse_h(h):
+                import re as _re
+                m = _re.match(r"(\d{1,2})[:h\.](\d{2})", str(h).strip())
+                return f"{int(m.group(1)):02d}:{m.group(2)}" if m else "99:99"
+            df_jour["_sort_h"] = df_jour["heure_debut"].apply(_parse_h)
             df_jour = df_jour.sort_values("_sort_h").drop(columns=["_sort_h"]).reset_index(drop=True)
         else:
             df_jour = pd.DataFrame()
