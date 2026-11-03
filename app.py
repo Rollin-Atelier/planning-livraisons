@@ -1038,7 +1038,7 @@ def onglet_calendrier(df):
         if not df_sem.empty and "date_livraison" in df_sem.columns:
             df_jour = df_sem[df_sem["date_livraison"].dt.date==d].copy()
             df_jour["_sort_h"] = pd.to_datetime(df_jour["heure_debut"].astype(str).str.strip().str.zfill(5), format="%H:%M", errors="coerce")
-            df_jour = df_jour.sort_values("_sort_h").drop(columns=["_sort_h"])
+            df_jour = df_jour.sort_values("_sort_h", na_position="last").drop(columns=["_sort_h"]).reset_index(drop=True)
         else:
             df_jour = pd.DataFrame()
         with col:
@@ -1065,7 +1065,7 @@ def onglet_calendrier(df):
         if not df_sem.empty and "date_livraison" in df_sem.columns:
             df_jour = df_sem[df_sem["date_livraison"].dt.date==d].copy()
             df_jour["_sort_h"] = pd.to_datetime(df_jour["heure_debut"].astype(str).str.strip().str.zfill(5), format="%H:%M", errors="coerce")
-            df_jour = df_jour.sort_values("_sort_h").drop(columns=["_sort_h"])
+            df_jour = df_jour.sort_values("_sort_h", na_position="last").drop(columns=["_sort_h"]).reset_index(drop=True)
         else:
             df_jour = pd.DataFrame()
         if df_jour.empty: continue
