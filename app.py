@@ -234,6 +234,10 @@ def _fetch_from_sheets():
             df["date_livraison"] = pd.to_datetime(df["date_livraison"], errors="coerce")
         for col in ["heure_debut","lieu_depart","lieu_depart_autre","lieu_arrivee","lieu_arrivee_autre"]:
             if col not in df.columns: df[col] = ""
+        # Tri à la source — garantit l'ordre dans tout le cache
+        if "heure_debut" in df.columns and "date_livraison" in df.columns:
+            df["_sort_h"] = df["heure_debut"].apply(_parse_h)
+            df = df.sort_values(["date_livraison", "_sort_h"], na_position="last").drop(columns=["_sort_h"]).reset_index(drop=True)
         st.session_state["cache_livraisons"] = df
     else:
         if "cache_livraisons" not in st.session_state:
