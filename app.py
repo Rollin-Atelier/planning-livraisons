@@ -261,7 +261,7 @@ def _fetch_from_sheets():
 
     st.session_state["last_sync"] = datetime.now()
 
-CACHE_VERSION = "v4"
+CACHE_VERSION = "v5"
 
 def ensure_cache():
     """Sync auto toutes les 300s, ou si cache absent/obsolète."""
@@ -937,7 +937,16 @@ def onglet_dashboard(df):
         st.markdown("---"); st.markdown("### \U0001f4c5 Prochains trajets")
     if df_actifs.empty: st.info("Aucun trajet actif pour le moment.")
     else:
-        df_f=df_actifs[df_actifs["date_livraison"].notna()&(df_actifs["date_livraison"].dt.date>=today)&(df_actifs["statut"]!="Livre")].sort_values("date_livraison") if "date_livraison" in df_actifs.columns else pd.DataFrame()
+        if "date_livraison" in df_actifs.columns:
+            _df_f = df_actifs[
+                df_actifs["date_livraison"].notna() &
+                (df_actifs["date_livraison"].dt.date >= today) &
+                (df_actifs["statut"] != "Livre")
+            ].copy()
+            _df_f["_sort_h"] = _df_f["heure_debut"].apply(_parse_h)
+            df_f = _df_f.sort_values(["date_livraison", "_sort_h"]).drop(columns=["_sort_h"]).reset_index(drop=True)
+        else:
+            df_f = pd.DataFrame()
         if df_f.empty: st.info("Aucun trajet a venir.")
         else:
             prev_date=None
