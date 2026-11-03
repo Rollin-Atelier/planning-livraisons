@@ -328,13 +328,34 @@ def save_trajet(row_data):
     ws.append_row(row_data)
     st.session_state["last_sync"] = None
 
-def do_update_statut(ws, row_idx, new_statut):
+def do_update_statut(ws, row_idx, new_statut, id_trajet=None):
+    # Chercher la vraie ligne dans le Sheet par id_trajet
+    row_num = None
+    if id_trajet:
+        try:
+            cell = ws.find(str(id_trajet))
+            if cell:
+                row_num = cell.row
+        except Exception:
+            pass
+    if row_num is None:
+        row_num = row_idx + 2  # fallback
     col_idx = HEADER_LIVRAISONS.index("statut") + 1
-    ws.update_cell(row_idx + 2, col_idx, new_statut)
+    ws.update_cell(row_num, col_idx, new_statut)
     st.session_state["last_sync"] = None
 
-def do_update_full(ws, row_idx, new_statut, new_date, new_hd, new_hf, new_cam, new_type=None, new_comment=None, new_desc=None, new_adresse=None):
-    row_num = row_idx + 2
+def do_update_full(ws, row_idx, new_statut, new_date, new_hd, new_hf, new_cam, new_type=None, new_comment=None, new_desc=None, new_adresse=None, id_trajet=None):
+    # Chercher la vraie ligne dans le Sheet par id_trajet (évite les décalages dus au tri en mémoire)
+    row_num = None
+    if id_trajet:
+        try:
+            cell = ws.find(str(id_trajet))
+            if cell:
+                row_num = cell.row
+        except Exception:
+            pass
+    if row_num is None:
+        row_num = row_idx + 2  # fallback
     fields = [("statut",new_statut),("date_livraison",str(new_date) if new_date else ""),("heure_debut",new_hd),("heure_fin",new_hf),("camion",new_cam)]
     if new_type is not None: fields.append(("type_trajet", new_type))
     if new_comment is not None: fields.append(("commentaire", new_comment))
@@ -345,8 +366,19 @@ def do_update_full(ws, row_idx, new_statut, new_date, new_hd, new_hf, new_cam, n
         ws.update_cell(row_num, col_idx, val)
     st.session_state["last_sync"] = None
 
-def do_delete_trajet(ws, row_idx):
-    ws.delete_rows(row_idx + 2)
+def do_delete_trajet(ws, row_idx, id_trajet=None):
+    # Chercher la vraie ligne dans le Sheet par id_trajet
+    row_num = None
+    if id_trajet:
+        try:
+            cell = ws.find(str(id_trajet))
+            if cell:
+                row_num = cell.row
+        except Exception:
+            pass
+    if row_num is None:
+        row_num = row_idx + 2  # fallback
+    ws.delete_rows(row_num)
     st.session_state["last_sync"] = None
 
 def get_semaines(n=12):
@@ -487,7 +519,8 @@ def trajet_avec_menu(row, ws, all_rows, key_prefix=""):
                         for ri, r in enumerate(all_rows):
                             if str(r.get("id_trajet","")) == id_t:
                                 do_update_full(ws, ri, new_stat, new_date, new_hd, new_hf,
-                                               new_cam, new_type, new_comment, new_desc, new_adresse)
+                                               new_cam, new_type, new_comment, new_desc, new_adresse,
+                                               id_trajet=str(r.get("id_trajet","")))
                                 st.success("Mis a jour !"); st.rerun(); break
             with c_del:
                 if st.button("🗑️ Supprimer", key=f"pop_del_{key_prefix}_{id_t}",
@@ -495,7 +528,7 @@ def trajet_avec_menu(row, ws, all_rows, key_prefix=""):
                     if ws:
                         for ri, r in enumerate(all_rows):
                             if str(r.get("id_trajet","")) == id_t:
-                                do_delete_trajet(ws, ri)
+                                do_delete_trajet(ws, ri, id_trajet=str(r.get("id_trajet","")))
                                 st.success("Supprime !"); st.rerun(); break
 
 def form_planif_rapide(affaire, ouvrage, id_tache, key_suffix=""):
