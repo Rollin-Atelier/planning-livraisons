@@ -104,6 +104,7 @@ STATUT_BADGE = {"Planifie":"badge-planifie","Livre":"badge-livre","Reporte":"bad
 HEADER_LIVRAISONS = ["id_trajet","type_trajet","id_tache","affaire","ouvrage","lieu_depart","lieu_depart_autre","lieu_arrivee","lieu_arrivee_autre","destination","nom_chantier","description","adresse","contact_nom","contact_tel","date_livraison","semaine","heure_debut","heure_fin","camion","statut","commentaire"]
 HEADER_ALERTES = ["id_alerte","chauffeur","date_alerte","heure_debut","heure_fin","type_alerte","message"]
 HEADER_ATTENTE = ["id_attente","type_trajet","affaire","ouvrage","lieu_depart","lieu_arrivee","description","adresse","contact_nom","contact_tel","camion","commentaire","created"]
+HEADER_SANS_LIV = ["id_sl","id_tache","chantier","ouvrage","personne","created"]
 
 def _parse_h(h):
     """Parse une heure 'HH:MM' depuis n'importe quel format Sheet."""
@@ -259,6 +260,9 @@ def _fetch_from_sheets():
         if "cache_taches" not in st.session_state:
             st.session_state["cache_taches"] = pd.DataFrame()
 
+    raw_sl = safe_get("sans_livraison")
+    st.session_state["cache_sans_livraison"] = raw_sl if raw_sl else []
+
     st.session_state["last_sync"] = datetime.now()
 
 CACHE_VERSION = "v5"
@@ -307,6 +311,28 @@ def delete_attente(id_att):
     for i, r in enumerate(data):
         if str(r.get("id_attente","")) == str(id_att):
             ws.delete_rows(i + 2); break
+
+def load_sans_livraison():
+    ensure_cache()
+    return st.session_state.get("cache_sans_livraison", [])
+
+def save_sans_livraison(id_tache, chantier, ouvrage, personne):
+    sh = open_sheet()
+    try: ws = sh.worksheet("sans_livraison")
+    except gspread.WorksheetNotFound:
+        ws = sh.add_worksheet("sans_livraison", rows=500, cols=len(HEADER_SANS_LIV))
+        ws.append_row(HEADER_SANS_LIV)
+    ws.append_row([str(uuid.uuid4())[:8], id_tache, chantier, ouvrage, personne, str(date.today())])
+    st.session_state["last_sync"] = None
+
+def delete_sans_livraison(id_sl):
+    ws = get_ws("sans_livraison")
+    if not ws: return
+    data = ws.get_all_records()
+    for i, r in enumerate(data):
+        if str(r.get("id_sl","")) == str(id_sl):
+            ws.delete_rows(i + 2); break
+    st.session_state["last_sync"] = None
 
 def planifier_depuis_attente(id_att, date_liv, semaine, heure_debut, heure_fin, camion):
     ws_att = get_ws("trajets_attente")
@@ -975,14 +1001,20 @@ def onglet_dashboard(df):
         for _,t in taches_df.iterrows():
             tid=str(t.get(col_id,"")) if col_id else ""
             (taches_planifiees if tid and tid in ids_planifies else taches_non_planifiees).append(t)
-        if not taches_non_planifiees: st.success("Tous les ouvrages termines ont une livraison planifiee \u2713")
+        # Charger les ids exclus (pas de livraison)
+        sl_list = load_sans_livraison()
+        ids_sans_liv = {str(r.get("id_tache","")) for r in sl_list if r.get("id_tache")}
+        # Filtrer : exclure ceux marqués "pas de livraison"
+        taches_affichees = [t for t in taches_non_planifiees if (str(t.get(col_id,"")) if col_id else "") not in ids_sans_liv]
+        taches_exclues   = [t for t in taches_non_planifiees if (str(t.get(col_id,"")) if col_id else "") in ids_sans_liv]
+        if not taches_affichees: st.success("Tous les ouvrages termines ont une livraison planifiee \u2713")
         else:
-            st.markdown(f"**{len(taches_non_planifiees)} ouvrage(s) en attente :**")
-            for t in taches_non_planifiees:
+            st.markdown(f"**{len(taches_affichees)} ouvrage(s) en attente :**")
+            for t in taches_affichees:
                 affaire=str(t.get("chantier",t.get("affaire",""))); ouvrage=str(t.get("ouvrage",t.get("designation","")))
                 personne=str(t.get("personne","")); id_tache=str(t.get(col_id,"")) if col_id else ""
                 key_suf=f"{affaire}_{ouvrage}_{id_tache}".replace(" ","_")
-                col_info,col_btn=st.columns([8,2])
+                col_info,col_btn,col_excl=st.columns([7,2,2])
                 with col_info:
                     chantier_label = str(t.get("chantier", t.get("affaire", "")))
                     titre_ouvrage = f"{chantier_label} — {ouvrage}" if chantier_label else ouvrage
@@ -990,11 +1022,34 @@ def onglet_dashboard(df):
                 with col_btn:
                     if st.button("Planifier \u2192",key=f"btn_planif_{key_suf}",use_container_width=True,type="primary"):
                         st.session_state[f"open_form_{key_suf}"]=True
+                with col_excl:
+                    if st.button("\u2716 Pas de livraison",key=f"btn_excl_{key_suf}",use_container_width=True):
+                        try:
+                            save_sans_livraison(id_tache, affaire, ouvrage, personne)
+                            st.success(f"{ouvrage} exclu de la liste."); st.rerun()
+                        except Exception as e: st.error(f"Erreur : {e}")
                 if st.session_state.get(f"open_form_{key_suf}",False):
                     with st.container(): form_planif_rapide(affaire,ouvrage,id_tache,key_suffix=key_suf)
         if taches_planifiees:
             with st.expander(f"\u2713 {len(taches_planifiees)} ouvrage(s) deja planifie(s)"):
                 for t in taches_planifiees: st.markdown(f"- \U0001f535 **{t.get('ouvrage',t.get('designation',''))}** \u2014 {t.get('affaire','')}")
+        # Section ouvrages exclus (réactivation possible)
+        if taches_exclues or sl_list:
+            with st.expander(f"\u2716 {len(taches_exclues)} ouvrage(s) sans livraison"):
+                for t in taches_exclues:
+                    affaire_e=str(t.get("chantier",t.get("affaire",""))); ouvrage_e=str(t.get("ouvrage",t.get("designation","")))
+                    id_tache_e=str(t.get(col_id,"")) if col_id else ""
+                    # Trouver l'id_sl correspondant
+                    id_sl = next((str(r.get("id_sl","")) for r in sl_list if str(r.get("id_tache",""))==id_tache_e), None)
+                    key_e=f"reac_{id_tache_e}".replace(" ","_")
+                    titre_e = f"{affaire_e} — {ouvrage_e}" if affaire_e else ouvrage_e
+                    c1e,c2e=st.columns([8,2])
+                    with c1e: st.markdown(f"\U0001f6ab **{titre_e}**")
+                    with c2e:
+                        if st.button("\u21ba Reactiver",key=key_e,use_container_width=True):
+                            if id_sl:
+                                try: delete_sans_livraison(id_sl); st.success(f"{ouvrage_e} reactivé !"); st.rerun()
+                                except Exception as e: st.error(f"Erreur : {e}")
     else: st.info("Aucun ouvrage marque Termine dans le planning atelier.")
     alertes = load_alertes()
     today_str = str(date.today())
