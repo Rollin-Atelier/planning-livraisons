@@ -979,12 +979,14 @@ def onglet_dashboard(df):
         else:
             st.markdown(f"**{len(taches_non_planifiees)} ouvrage(s) en attente :**")
             for t in taches_non_planifiees:
-                affaire=str(t.get("affaire","")); ouvrage=str(t.get("ouvrage",t.get("designation","")))
+                affaire=str(t.get("chantier",t.get("affaire",""))); ouvrage=str(t.get("ouvrage",t.get("designation","")))
                 personne=str(t.get("personne","")); id_tache=str(t.get(col_id,"")) if col_id else ""
                 key_suf=f"{affaire}_{ouvrage}_{id_tache}".replace(" ","_")
                 col_info,col_btn=st.columns([8,2])
                 with col_info:
-                    st.markdown(f'<div class="ouvrage-card"><div><div class="ouvrage-sub" style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.05em;color:#f97316;margin-bottom:2px;">\U0001f3d7\ufe0f {affaire}</div><div class="ouvrage-label">\U0001f4e6 {ouvrage}</div><div class="ouvrage-sub">\U0001f477 {personne}</div></div></div>',unsafe_allow_html=True)
+                    chantier_label = str(t.get("chantier", t.get("affaire", "")))
+                    titre_ouvrage = f"{chantier_label} — {ouvrage}" if chantier_label else ouvrage
+                    st.markdown(f'<div class="ouvrage-card"><div><div class="ouvrage-label">\U0001f4e6 {titre_ouvrage}</div><div class="ouvrage-sub">\U0001f477 {personne}</div></div></div>',unsafe_allow_html=True)
                 with col_btn:
                     if st.button("Planifier \u2192",key=f"btn_planif_{key_suf}",use_container_width=True,type="primary"):
                         st.session_state[f"open_form_{key_suf}"]=True
