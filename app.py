@@ -1005,31 +1005,41 @@ def onglet_dashboard(df):
         sl_list = load_sans_livraison()
         ids_sans_liv = {str(r.get("id_tache","")) for r in sl_list if r.get("id_tache")}
         # Filtrer : exclure ceux marqués "pas de livraison"
-        taches_affichees = [t for t in taches_non_planifiees if (str(t.get(col_id,"")) if col_id else "") not in ids_sans_liv]
-        taches_exclues   = [t for t in taches_non_planifiees if (str(t.get(col_id,"")) if col_id else "") in ids_sans_liv]
-        if not taches_affichees: st.success("Tous les ouvrages termines ont une livraison planifiee \u2713")
-        else:
-            st.markdown(f"**{len(taches_affichees)} ouvrage(s) en attente :**")
+        def _get_id(t, col):
+            """Récupère l'id d'une Series pandas ou d'un dict de façon fiable."""
+            if col is None: return ""
+            try:
+                val = t[col] if hasattr(t, "__getitem__") else t.get(col, "")
+                return "" if (val is None or (isinstance(val, float) and __import__("math").isnan(val))) else str(val).strip()
+            except Exception: return ""
+
+        taches_affichees = [t for t in taches_non_planifiees if _get_id(t, col_id) not in ids_sans_liv]
+        taches_exclues   = [t for t in taches_non_planifiees if _get_id(t, col_id) in ids_sans_liv and _get_id(t, col_id) != ""]
+        nb_att = len(taches_affichees)
+        label_exp = f"\U0001f7e2 {nb_att} ouvrage(s) prêts à expédier" if nb_att else "\u2705 Tous les ouvrages ont une livraison planifiée"
+        with st.expander(label_exp, expanded=(nb_att > 0)):
+          if not taches_affichees: st.success("Tous les ouvrages termines ont une livraison planifiee \u2713")
+          else:
             for t in taches_affichees:
-                affaire=str(t.get("chantier",t.get("affaire",""))); ouvrage=str(t.get("ouvrage",t.get("designation","")))
-                personne=str(t.get("personne","")); id_tache=str(t.get(col_id,"")) if col_id else ""
-                key_suf=f"{affaire}_{ouvrage}_{id_tache}".replace(" ","_")
-                col_info,col_btn,col_excl=st.columns([7,2,2])
-                with col_info:
-                    chantier_label = str(t.get("chantier", t.get("affaire", "")))
-                    titre_ouvrage = f"{chantier_label} — {ouvrage}" if chantier_label else ouvrage
-                    st.markdown(f'<div class="ouvrage-card"><div><div class="ouvrage-label">\U0001f4e6 {titre_ouvrage}</div><div class="ouvrage-sub">\U0001f477 {personne}</div></div></div>',unsafe_allow_html=True)
-                with col_btn:
-                    if st.button("Planifier \u2192",key=f"btn_planif_{key_suf}",use_container_width=True,type="primary"):
-                        st.session_state[f"open_form_{key_suf}"]=True
-                with col_excl:
-                    if st.button("\u2716 Pas de livraison",key=f"btn_excl_{key_suf}",use_container_width=True):
-                        try:
-                            save_sans_livraison(id_tache, affaire, ouvrage, personne)
-                            st.success(f"{ouvrage} exclu de la liste."); st.rerun()
-                        except Exception as e: st.error(f"Erreur : {e}")
-                if st.session_state.get(f"open_form_{key_suf}",False):
-                    with st.container(): form_planif_rapide(affaire,ouvrage,id_tache,key_suffix=key_suf)
+                  affaire=str(t.get("chantier",t.get("affaire",""))); ouvrage=str(t.get("ouvrage",t.get("designation","")))
+                  personne=str(t.get("personne","")); id_tache=_get_id(t, col_id)
+                  key_suf=f"{affaire}_{ouvrage}_{id_tache}".replace(" ","_")
+                  col_info,col_btn,col_excl=st.columns([7,2,2])
+                  with col_info:
+                      chantier_label = str(t.get("chantier", t.get("affaire", "")))
+                      titre_ouvrage = f"{chantier_label} — {ouvrage}" if chantier_label else ouvrage
+                      st.markdown(f'<div class="ouvrage-card"><div><div class="ouvrage-label">\U0001f4e6 {titre_ouvrage}</div><div class="ouvrage-sub">\U0001f477 {personne}</div></div></div>',unsafe_allow_html=True)
+                  with col_btn:
+                      if st.button("Planifier \u2192",key=f"btn_planif_{key_suf}",use_container_width=True,type="primary"):
+                          st.session_state[f"open_form_{key_suf}"]=True
+                  with col_excl:
+                      if st.button("\u2716 Pas de livraison",key=f"btn_excl_{key_suf}",use_container_width=True):
+                          try:
+                              save_sans_livraison(id_tache, affaire, ouvrage, personne)
+                              st.success(f"{ouvrage} exclu de la liste."); st.rerun()
+                          except Exception as e: st.error(f"Erreur : {e}")
+                  if st.session_state.get(f"open_form_{key_suf}",False):
+                      with st.container(): form_planif_rapide(affaire,ouvrage,id_tache,key_suffix=key_suf)
         if taches_planifiees:
             with st.expander(f"\u2713 {len(taches_planifiees)} ouvrage(s) deja planifie(s)"):
                 for t in taches_planifiees: st.markdown(f"- \U0001f535 **{t.get('ouvrage',t.get('designation',''))}** \u2014 {t.get('affaire','')}")
@@ -1038,8 +1048,7 @@ def onglet_dashboard(df):
             with st.expander(f"\u2716 {len(taches_exclues)} ouvrage(s) sans livraison"):
                 for t in taches_exclues:
                     affaire_e=str(t.get("chantier",t.get("affaire",""))); ouvrage_e=str(t.get("ouvrage",t.get("designation","")))
-                    id_tache_e=str(t.get(col_id,"")) if col_id else ""
-                    # Trouver l'id_sl correspondant
+                    id_tache_e=_get_id(t, col_id)
                     id_sl = next((str(r.get("id_sl","")) for r in sl_list if str(r.get("id_tache",""))==id_tache_e), None)
                     key_e=f"reac_{id_tache_e}".replace(" ","_")
                     titre_e = f"{affaire_e} — {ouvrage_e}" if affaire_e else ouvrage_e
@@ -1050,6 +1059,7 @@ def onglet_dashboard(df):
                             if id_sl:
                                 try: delete_sans_livraison(id_sl); st.success(f"{ouvrage_e} reactivé !"); st.rerun()
                                 except Exception as e: st.error(f"Erreur : {e}")
+                            else: st.warning("ID introuvable, rafraichis la page.")
     else: st.info("Aucun ouvrage marque Termine dans le planning atelier.")
     alertes = load_alertes()
     today_str = str(date.today())
@@ -1128,25 +1138,38 @@ def onglet_dashboard(df):
     with st.expander(f"\U0001f4c2 Archives ({len(df_archive) if not df_archive.empty else 0})"):
         if df_archive.empty: st.info("Aucun trajet archive.")
         else:
-            prev_date=None
-            for _,row in df_archive.sort_values("date_livraison",ascending=False).iterrows():
-                d=row.get("date_livraison")
-                if pd.notna(d):
-                    d_str=fr_date_label(pd.to_datetime(d).date())
-                    if d_str!=prev_date: st.markdown(f"**{d_str}**"); prev_date=d_str
-                col_card,col_menu=st.columns([11,1])
-                with col_card: st.markdown(card_html(row,archive=True),unsafe_allow_html=True)
-                with col_menu:
-                    id_t=str(row.get("id_trajet",""))
-                    with st.popover("\u22ee"):
-                        if st.button("Marquer Livre",key=f"arch_livre_{id_t}",use_container_width=True,type="primary"):
-                            if ws:
-                                for ri,r in enumerate(all_rows):
-                                    if str(r.get("id_trajet",""))==id_t: do_update_statut(ws,ri,"Livre"); st.success("Mis a jour !"); st.rerun(); break
-                        if st.button("\U0001f5d1 Supprimer",key=f"arch_del_{id_t}",use_container_width=True):
-                            if ws:
-                                for ri,r in enumerate(all_rows):
-                                    if str(r.get("id_trajet",""))==id_t: do_delete_trajet(ws,ri); st.success("Supprime !"); st.rerun(); break
+            # Grouper par mois/année, ordre décroissant, tout replié
+            df_arch_s = df_archive.copy()
+            df_arch_s["_date_parsed"] = pd.to_datetime(df_arch_s["date_livraison"], errors="coerce")
+            df_arch_s["_mois_key"] = df_arch_s["_date_parsed"].apply(
+                lambda d: d.strftime("%Y-%m") if pd.notna(d) else "0000-00"
+            )
+            MOIS_FR = ["Janvier","Février","Mars","Avril","Mai","Juin",
+                       "Juillet","Août","Septembre","Octobre","Novembre","Décembre"]
+            def mois_label(key):
+                if key == "0000-00": return "Date inconnue"
+                try:
+                    y,m = key.split("-"); return f"{MOIS_FR[int(m)-1]} {y}"
+                except: return key
+            mois_keys = sorted(df_arch_s["_mois_key"].unique(), reverse=True)
+            for mk in mois_keys:
+                df_m = df_arch_s[df_arch_s["_mois_key"]==mk].sort_values("_date_parsed", ascending=False)
+                label_m = f"📅 {mois_label(mk)} — {len(df_m)} trajet(s)"
+                with st.expander(label_m, expanded=False):
+                    for _,row in df_m.iterrows():
+                        col_card,col_menu=st.columns([11,1])
+                        with col_card: st.markdown(card_html(row,archive=True),unsafe_allow_html=True)
+                        with col_menu:
+                            id_t=str(row.get("id_trajet",""))
+                            with st.popover("\u22ee"):
+                                if st.button("Marquer Livre",key=f"arch_livre_{id_t}",use_container_width=True,type="primary"):
+                                    if ws:
+                                        for ri,r in enumerate(all_rows):
+                                            if str(r.get("id_trajet",""))==id_t: do_update_statut(ws,ri,"Livre"); st.success("Mis a jour !"); st.rerun(); break
+                                if st.button("\U0001f5d1 Supprimer",key=f"arch_del_{id_t}",use_container_width=True):
+                                    if ws:
+                                        for ri,r in enumerate(all_rows):
+                                            if str(r.get("id_trajet",""))==id_t: do_delete_trajet(ws,ri); st.success("Supprime !"); st.rerun(); break
 
 def onglet_ajouter():
     st.markdown("### \u2795 Nouveau trajet")
