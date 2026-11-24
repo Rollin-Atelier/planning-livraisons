@@ -163,6 +163,32 @@ def get_client():
     creds = Credentials.from_service_account_info(info, scopes=SCOPES)
     return gspread.authorize(creds)
 
+
+import time as _time
+import functools as _functools
+
+def gspread_retry(max_attempts=4, base_delay=3):
+    """Décorateur retry pour les appels gspread — gère 429, 503, timeouts."""
+    def decorator(fn):
+        @_functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            for attempt in range(max_attempts):
+                try:
+                    return fn(*args, **kwargs)
+                except Exception as e:
+                    err_str = str(e)
+                    # 429 quota / 503 indispo → on attend et on réessaie
+                    if any(code in err_str for code in ["429", "503", "RESOURCE_EXHAUSTED", "Quota exceeded"]):
+                        if attempt < max_attempts - 1:
+                            wait = base_delay * (2 ** attempt)  # 3s, 6s, 12s
+                            _time.sleep(wait)
+                            continue
+                    # Autre erreur → on remonte directement
+                    raise
+            raise RuntimeError(f"Echec après {max_attempts} tentatives : {fn.__name__}")
+        return wrapper
+    return decorator
+
 def open_sheet():
     return get_client().open_by_url(SHEET_URL)
 
@@ -275,6 +301,7 @@ def ensure_cache():
         _fetch_from_sheets()
         st.session_state["cache_version"] = CACHE_VERSION
 
+@gspread_retry()
 def save_alerte(row_data):
     sh = open_sheet()
     try: ws = sh.worksheet("alertes_chauffeurs")
@@ -283,6 +310,7 @@ def save_alerte(row_data):
         ws.append_row(HEADER_ALERTES)
     ws.append_row(row_data)
 
+@gspread_retry()
 def delete_alerte(id_alerte):
     ws = get_ws("alertes_chauffeurs")
     if not ws: return
@@ -296,6 +324,7 @@ def load_attente():
     return st.session_state.get("cache_attente", [])
 
 
+@gspread_retry()
 def save_attente(row_data):
     sh = open_sheet()
     try: ws = sh.worksheet("trajets_attente")
@@ -316,6 +345,7 @@ def load_sans_livraison():
     ensure_cache()
     return st.session_state.get("cache_sans_livraison", [])
 
+@gspread_retry()
 def save_sans_livraison(id_tache, chantier, ouvrage, personne):
     sh = open_sheet()
     try: ws = sh.worksheet("sans_livraison")
@@ -325,6 +355,7 @@ def save_sans_livraison(id_tache, chantier, ouvrage, personne):
     ws.append_row([str(uuid.uuid4())[:8], id_tache, chantier, ouvrage, personne, str(date.today())])
     st.session_state["last_sync"] = None
 
+@gspread_retry()
 def delete_sans_livraison(id_sl):
     ws = get_ws("sans_livraison")
     if not ws: return
@@ -354,6 +385,7 @@ def save_trajet(row_data):
     ws.append_row(row_data)
     st.session_state["last_sync"] = None
 
+@gspread_retry()
 def do_update_statut(ws, row_idx, new_statut, id_trajet=None):
     # Chercher la vraie ligne dans le Sheet par id_trajet
     row_num = None
@@ -370,6 +402,7 @@ def do_update_statut(ws, row_idx, new_statut, id_trajet=None):
     ws.update_cell(row_num, col_idx, new_statut)
     st.session_state["last_sync"] = None
 
+@gspread_retry()
 def do_update_full(ws, row_idx, new_statut, new_date, new_hd, new_hf, new_cam, new_type=None, new_comment=None, new_desc=None, new_adresse=None, id_trajet=None):
     # Chercher la vraie ligne dans le Sheet par id_trajet (évite les décalages dus au tri en mémoire)
     row_num = None
@@ -392,6 +425,7 @@ def do_update_full(ws, row_idx, new_statut, new_date, new_hd, new_hf, new_cam, n
         ws.update_cell(row_num, col_idx, val)
     st.session_state["last_sync"] = None
 
+@gspread_retry()
 def do_delete_trajet(ws, row_idx, id_trajet=None):
     # Chercher la vraie ligne dans le Sheet par id_trajet
     row_num = None
